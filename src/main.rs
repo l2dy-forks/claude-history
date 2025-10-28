@@ -1,11 +1,11 @@
+use chrono::{DateTime, Local};
+use clap::Parser;
+use colored::*;
 use serde::Deserialize;
-use std::fs::{File, read_dir};
+use std::fs::{read_dir, File};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use colored::*;
-use clap::Parser;
-use chrono::{DateTime, Local};
 
 #[derive(Parser, Debug)]
 #[command(name = "claude-history-viewer")]
@@ -78,14 +78,14 @@ struct AssistantMessage {
 #[serde(rename_all = "snake_case")]
 enum ContentBlock {
     Text {
-        text: String
+        text: String,
     },
     ToolUse {
         #[allow(dead_code)]
         id: String,
         name: String,
         #[allow(dead_code)]
-        input: serde_json::Value
+        input: serde_json::Value,
     },
     #[allow(dead_code)]
     ToolResult {
@@ -103,21 +103,22 @@ fn main() {
     let args = Args::parse();
 
     // Get current working directory
-    let current_dir = std::env::current_dir()
-        .expect("Failed to get current directory");
+    let current_dir = std::env::current_dir().expect("Failed to get current directory");
 
     // Convert to Claude projects directory path
     let projects_dir = get_claude_projects_dir(&current_dir);
 
     if !projects_dir.exists() {
-        eprintln!("Claude projects directory not found: {}", projects_dir.display());
+        eprintln!(
+            "Claude projects directory not found: {}",
+            projects_dir.display()
+        );
         eprintln!("Expected directory for: {}", current_dir.display());
         std::process::exit(1);
     }
 
     // Find all JSONL files
-    let jsonl_files = find_jsonl_files(&projects_dir)
-        .expect("Failed to find JSONL files");
+    let jsonl_files = find_jsonl_files(&projects_dir).expect("Failed to find JSONL files");
 
     if jsonl_files.is_empty() {
         eprintln!("No JSONL files found in {}", projects_dir.display());
@@ -128,7 +129,10 @@ fn main() {
     let fzf_entries = create_fzf_input(&jsonl_files);
 
     if fzf_entries.is_empty() {
-        eprintln!("No conversations with displayable content found in {}", projects_dir.display());
+        eprintln!(
+            "No conversations with displayable content found in {}",
+            projects_dir.display()
+        );
         std::process::exit(1);
     }
 
@@ -143,8 +147,7 @@ fn main() {
 }
 
 fn get_claude_projects_dir(current_dir: &Path) -> PathBuf {
-    let home_dir = std::env::var("HOME")
-        .expect("HOME environment variable not set");
+    let home_dir = std::env::var("HOME").expect("HOME environment variable not set");
 
     // Convert path to string and replace slashes with dashes
     let path_str = current_dir.to_string_lossy();
@@ -165,35 +168,35 @@ fn find_jsonl_files(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
 
         if path.extension().and_then(|s| s.to_str()) == Some("jsonl") {
             // Skip agent-generated JSONL files
-            if let Some(filename) = path.file_name().and_then(|f| f.to_str()) {
-                if !filename.starts_with("agent-") {
+            if let Some(filename) = path.file_name().and_then(|f| f.to_str())
+                && !filename.starts_with("agent-") {
                     files.push(path);
                 }
-            }
         }
     }
 
     // Sort by modification time (newest first)
-    files.sort_by_key(|path| {
-        std::fs::metadata(path)
-            .and_then(|m| m.modified())
-            .ok()
-    });
+    files.sort_by_key(|path| std::fs::metadata(path).and_then(|m| m.modified()).ok());
     files.reverse();
 
     Ok(files)
 }
 
 fn create_fzf_input(files: &[PathBuf]) -> Vec<(usize, String)> {
-    files.iter().enumerate().filter_map(|(idx, path)| {
-        let preview = extract_preview(path).unwrap_or_else(|_| "Failed to read file".to_string());
-        // Skip files with empty preview (no displayable content)
-        if preview.trim().is_empty() {
-            return None;
-        }
-        let timestamp = extract_timestamp(path).unwrap_or_else(|_| "Unknown time".to_string());
-        Some((idx, format!("[{}] {} | {}", idx, timestamp, preview)))
-    }).collect()
+    files
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, path)| {
+            let preview =
+                extract_preview(path).unwrap_or_else(|_| "Failed to read file".to_string());
+            // Skip files with empty preview (no displayable content)
+            if preview.trim().is_empty() {
+                return None;
+            }
+            let timestamp = extract_timestamp(path).unwrap_or_else(|_| "Unknown time".to_string());
+            Some((idx, format!("[{}] {} | {}", idx, timestamp, preview)))
+        })
+        .collect()
 }
 
 fn extract_timestamp(path: &Path) -> std::io::Result<String> {
@@ -213,12 +216,11 @@ fn extract_timestamp(path: &Path) -> std::io::Result<String> {
                 _ => None,
             };
 
-            if let Some(ts) = timestamp_str {
-                if let Ok(dt) = DateTime::parse_from_rfc3339(&ts) {
+            if let Some(ts) = timestamp_str
+                && let Ok(dt) = DateTime::parse_from_rfc3339(&ts) {
                     let local: DateTime<Local> = dt.into();
                     return Ok(local.format("%b %d, %H:%M").to_string());
                 }
-            }
         }
     }
 
@@ -261,7 +263,7 @@ fn extract_preview(path: &Path) -> std::io::Result<String> {
 
     let preview = preview_parts.join(" ... ");
     // Remove newlines and collapse whitespace to ensure single line
-    let preview = preview.replace('\n', " ").replace('\r', " ");
+    let preview = preview.replace(['\n', '\r'], " ");
     let preview = preview.split_whitespace().collect::<Vec<_>>().join(" ");
 
     Ok(preview)
@@ -270,27 +272,28 @@ fn extract_preview(path: &Path) -> std::io::Result<String> {
 fn extract_text_from_user(message: &UserMessage) -> String {
     match &message.content {
         UserContent::String(text) => text.chars().take(100).collect(),
-        UserContent::Blocks(blocks) => {
-            blocks.iter()
-                .filter_map(|block| {
-                    if let ContentBlock::Text { text } = block {
-                        Some(text.as_str())
-                    } else {
-                        None
-                    }
-                })
-                .take(1)
-                .collect::<Vec<_>>()
-                .join(" ")
-                .chars()
-                .take(100)
-                .collect()
-        }
+        UserContent::Blocks(blocks) => blocks
+            .iter()
+            .filter_map(|block| {
+                if let ContentBlock::Text { text } = block {
+                    Some(text.as_str())
+                } else {
+                    None
+                }
+            })
+            .take(1)
+            .collect::<Vec<_>>()
+            .join(" ")
+            .chars()
+            .take(100)
+            .collect(),
     }
 }
 
 fn extract_text_from_assistant(message: &AssistantMessage) -> String {
-    message.content.iter()
+    message
+        .content
+        .iter()
         .filter_map(|block| {
             if let ContentBlock::Text { text } = block {
                 Some(text.as_str())
@@ -306,14 +309,12 @@ fn extract_text_from_assistant(message: &AssistantMessage) -> String {
         .collect()
 }
 
-fn run_fzf(entries: &[(usize, String)], files: &[PathBuf]) -> Result<PathBuf, Box<dyn std::error::Error>> {
+fn run_fzf(
+    entries: &[(usize, String)],
+    files: &[PathBuf],
+) -> Result<PathBuf, Box<dyn std::error::Error>> {
     let mut child = Command::new("fzf")
-        .args(&[
-            "--height", "40%",
-            "--reverse",
-            "--border",
-            "--no-multi"
-        ])
+        .args(["--height", "40%", "--reverse", "--border", "--no-multi"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()?;
@@ -339,8 +340,8 @@ fn run_fzf(entries: &[(usize, String)], files: &[PathBuf]) -> Result<PathBuf, Bo
     }
 
     // Extract index from [idx] at the start
-    if let Some(idx_end) = selection.find(']') {
-        if idx_end > 1 {
+    if let Some(idx_end) = selection.find(']')
+        && idx_end > 1 {
             let idx_str = &selection[1..idx_end];
             if let Ok(idx) = idx_str.parse::<usize>() {
                 if idx < files.len() {
@@ -350,7 +351,6 @@ fn run_fzf(entries: &[(usize, String)], files: &[PathBuf]) -> Result<PathBuf, Bo
                 }
             }
         }
-    }
 
     Err("Failed to parse selection - expected format: [index] filename | preview".into())
 }
@@ -377,28 +377,33 @@ fn display_conversation(file_path: &Path, no_tools: bool) {
 
 fn display_entry(entry: &LogEntry, no_tools: bool) {
     match entry {
-        LogEntry::Summary { .. } | LogEntry::FileHistorySnapshot { .. } | LogEntry::System { .. } => {
+        LogEntry::Summary { .. }
+        | LogEntry::FileHistorySnapshot { .. }
+        | LogEntry::System { .. } => {
             // Skip summary, file history snapshot, and system entries
         }
-        LogEntry::User { message, .. } => {
-            match &message.content {
-                UserContent::String(text) => {
-                    println!("\n{} {}", "User:".blue().bold(), text);
-                }
-                UserContent::Blocks(blocks) => {
-                    for block in blocks {
-                        if let ContentBlock::Text { text } = block {
-                            println!("\n{} {}", "User:".blue().bold(), text);
-                        }
+        LogEntry::User { message, .. } => match &message.content {
+            UserContent::String(text) => {
+                println!("\n{} {}", "User:".blue().bold(), text);
+            }
+            UserContent::Blocks(blocks) => {
+                for block in blocks {
+                    if let ContentBlock::Text { text } = block {
+                        println!("\n{} {}", "User:".blue().bold(), text);
                     }
                 }
             }
-        }
+        },
         LogEntry::Assistant { message, .. } => {
-            let has_text = message.content.iter().any(|block|
-                matches!(block, ContentBlock::Text { .. } | ContentBlock::Thinking { .. })
-            );
-            let tool_uses: Vec<&str> = message.content.iter()
+            let has_text = message.content.iter().any(|block| {
+                matches!(
+                    block,
+                    ContentBlock::Text { .. } | ContentBlock::Thinking { .. }
+                )
+            });
+            let tool_uses: Vec<&str> = message
+                .content
+                .iter()
                 .filter_map(|block| {
                     if let ContentBlock::ToolUse { name, .. } = block {
                         Some(name.as_str())
@@ -411,7 +416,11 @@ fn display_entry(entry: &LogEntry, no_tools: bool) {
             // If there's only tool use blocks and no text, show tool calls (unless no_tools is set)
             if !tool_uses.is_empty() && !has_text && !no_tools {
                 for tool_name in tool_uses {
-                    println!("\n{} <Calling Tool: {}>", "Assistant:".green().bold(), tool_name);
+                    println!(
+                        "\n{} <Calling Tool: {}>",
+                        "Assistant:".green().bold(),
+                        tool_name
+                    );
                 }
             } else {
                 // Show text content and tool calls together
@@ -422,7 +431,11 @@ fn display_entry(entry: &LogEntry, no_tools: bool) {
                         }
                         ContentBlock::ToolUse { name, .. } => {
                             if !no_tools {
-                                println!("\n{} <Calling Tool: {}>", "Assistant:".green().bold(), name);
+                                println!(
+                                    "\n{} <Calling Tool: {}>",
+                                    "Assistant:".green().bold(),
+                                    name
+                                );
                             }
                         }
                         ContentBlock::Thinking { thinking, .. } => {
