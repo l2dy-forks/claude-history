@@ -1,0 +1,30 @@
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum AppError {
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("JSON parsing error: {0}")]
+    Json(#[from] serde_json::Error),
+
+    #[error("Claude projects directory not found at {0}")]
+    ProjectsDirNotFound(String),
+
+    #[error("No conversation history found in {0}")]
+    NoHistoryFound(String),
+
+    #[error("Failed to run fzf: {0}")]
+    FzfExecutionError(String),
+
+    #[error("User cancelled selection")]
+    SelectionCancelled,
+
+    #[error("Failed to parse fzf selection")]
+    FzfSelectionParseError,
+
+    #[error("Index {0} out of range")]
+    IndexOutOfRange(usize),
+}
+
+pub type Result<T> = std::result::Result<T, AppError>;
