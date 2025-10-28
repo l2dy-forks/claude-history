@@ -14,6 +14,10 @@ struct Args {
     /// Hide tool calls from the output
     #[arg(long, help = "Hide tool calls from the conversation output")]
     no_tools: bool,
+
+    /// Show the conversation directory and exit
+    #[arg(long, help = "Print the conversation directory path and exit")]
+    show_dir: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -107,6 +111,12 @@ fn main() {
 
     // Convert to Claude projects directory path
     let projects_dir = get_claude_projects_dir(&current_dir);
+
+    // If --show-dir flag is set, print directory and exit
+    if args.show_dir {
+        println!("{}", projects_dir.display());
+        std::process::exit(0);
+    }
 
     if !projects_dir.exists() {
         eprintln!(
