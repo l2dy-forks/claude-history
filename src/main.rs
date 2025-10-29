@@ -9,6 +9,8 @@ mod history;
 use clap::Parser;
 use cli::Args;
 use error::{AppError, Result};
+use std::path::Path;
+use std::process::Command;
 
 fn main() {
     if let Err(e) = run() {
@@ -62,8 +64,52 @@ fn run() -> Result<()> {
     // Use fzf to select a conversation
     let selected_path = fzf::select_conversation(&conversations, args.relative_time)?;
 
+    if args.resume {
+        resume_with_claude(&selected_path)?;
+        return Ok(());
+    }
+
     // Display the selected conversation
     display::display_conversation(&selected_path, args.no_tools)?;
+
+    Ok(())
+}
+
+fn resume_with_claude(selected_path: &Path) -> Result<()> {
+    let conversation_id = selected_path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .ok_or_else(|| {
+            AppError::ClaudeExecutionError("Conversation filename is not valid Unicode".to_string())
+        })?
+        .to_owned();
+
+    let mut command = Command::new("claude");
+    command.args(["--resume", &conversation_id]);
+
+    run_claude_command(command)
+}
+
+#[cfg(unix)]
+fn run_claude_command(mut command: Command) -> Result<()> {
+    use std::os::unix::process::CommandExt;
+
+    let err = command.exec();
+    Err(AppError::ClaudeExecutionError(err.to_string()))
+}
+
+#[cfg(not(unix))]
+fn run_claude_command(mut command: Command) -> Result<()> {
+    let status = command
+        .status()
+        .map_err(|e| AppError::ClaudeExecutionError(e.to_string()))?;
+
+    if !status.success() {
+        return Err(AppError::ClaudeExecutionError(format!(
+            "claude CLI exited with status {}",
+            status
+        )));
+    }
 
     Ok(())
 }

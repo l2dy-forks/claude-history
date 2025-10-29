@@ -19,4 +19,8 @@ pub struct Args {
     /// Show relative time (e.g. \"10 minutes ago\") instead of timestamp
     #[arg(long, help = "Display relative time instead of absolute timestamp")]
     pub relative_time: bool,
+
+    /// Resume the selected conversation in the Claude CLI
+    #[arg(long, help = "Resume the selected conversation in Claude Code")]
+    pub resume: bool,
 }

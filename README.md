@@ -41,6 +41,7 @@ Options:
       --no-tools  Hide tool calls from the conversation output
       --show-dir  Print the conversation directory path and exit
       --last      Show the last messages in the fuzzy finder preview
+      --resume    Resume the selected conversation in Claude Code
   -h, --help      Print help
 ```
 
@@ -53,6 +54,11 @@ Options:
 
 Tool invocations (`<Calling Tool: …>`) can clutter the output when you're only
 interested in the human conversation. Use `--no-tools` to suppress those lines.
+
+### resuming conversations
+
+If you want to continue a conversation, launch `claude-history` with `--resume`
+and it will hand off to `claude --resume <conversation-id>`.
 
 ## filtering details
 

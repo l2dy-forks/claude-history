@@ -25,6 +25,9 @@ pub enum AppError {
 
     #[error("Index {0} out of range")]
     IndexOutOfRange(usize),
+
+    #[error("Failed to run Claude CLI: {0}")]
+    ClaudeExecutionError(String),
 }
 
 pub type Result<T> = std::result::Result<T, AppError>;
