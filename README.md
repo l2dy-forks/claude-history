@@ -63,6 +63,8 @@ Options:
       --first          Show the first messages in the fuzzy finder preview
   -r, --relative-time  Display relative time (e.g. "10 minutes ago")
       --absolute-time  Display absolute timestamp
+      --show-thinking  Show thinking blocks in the conversation output
+      --hide-thinking  Hide thinking blocks from the conversation output
   -c, --resume         Resume the selected conversation in Claude Code
   -h, --help           Print help
 ```
@@ -76,6 +78,13 @@ Options:
 
 Tool invocations (`<Calling Tool: …>`) can clutter the output when you're only
 interested in the human conversation. Use `--no-tools` to suppress those lines.
+
+### showing thinking blocks
+
+Extended thinking models (like Claude Sonnet 4.5) include reasoning steps in
+their output. By default, these thinking blocks are hidden to keep
+conversations focused. Use `--show-thinking` to display them when you want to
+see Claude's reasoning process.
 
 ### resuming conversations
 
@@ -139,6 +148,9 @@ last = false
 
 # Use relative time formatting by default
 relative_time = true
+
+# Show thinking blocks by default (default: false)
+show_thinking = false
 EOF
 ```
 
@@ -147,6 +159,7 @@ EOF
 - `no_tools` (boolean): Hide tool calls from conversation output
 - `last` (boolean): Show last messages instead of first in fuzzy finder preview
 - `relative_time` (boolean): Display relative time instead of absolute timestamp
+- `show_thinking` (boolean): Show thinking blocks in conversation output (default: false)
 
 ### overriding config
 
@@ -155,6 +168,7 @@ Each display option has opposing flags for explicit override:
 - `--no-tools` / `--show-tools`
 - `--last` / `--first`
 - `--relative-time` / `--absolute-time`
+- `--hide-thinking` / `--show-thinking`
 
 For example, if your config has `no_tools = true`, you can temporarily show tools with `--show-tools`.
 
