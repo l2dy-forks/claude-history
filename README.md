@@ -16,10 +16,10 @@ discover the matching transcript folder automatically.
 
 ## install
 
-Clone the repository and install the binary locally:
+Install the published crate from crates.io:
 
 ```sh
-$ cargo install --path .
+$ cargo install claude-history
 ```
 
 ## usage
