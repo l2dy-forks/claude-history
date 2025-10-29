@@ -38,11 +38,12 @@ messages by default.
 Usage: claude-history [OPTIONS]
 
 Options:
-      --no-tools  Hide tool calls from the conversation output
-      --show-dir  Print the conversation directory path and exit
-      --last      Show the last messages in the fuzzy finder preview
-      --resume    Resume the selected conversation in Claude Code
-  -h, --help      Print help
+  -t, --no-tools          Hide tool calls from the conversation output
+  -d, --show-dir          Print the conversation directory path and exit
+  -l, --last              Show the last messages in the fuzzy finder preview
+  -r, --relative-time     Display relative time instead of absolute timestamp
+  -c, --resume            Resume the selected conversation in Claude Code
+  -h, --help              Print help
 ```
 
 ### preview modes
