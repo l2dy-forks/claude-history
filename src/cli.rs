@@ -15,4 +15,8 @@ pub struct Args {
     /// Show last messages in preview instead of first messages
     #[arg(long, help = "Show the last messages in the fuzzy finder preview")]
     pub last: bool,
+
+    /// Show relative time (e.g. \"10 minutes ago\") instead of timestamp
+    #[arg(long, help = "Display relative time instead of absolute timestamp")]
+    pub relative_time: bool,
 }

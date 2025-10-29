@@ -1,11 +1,16 @@
 use crate::error::{AppError, Result};
 use crate::history::Conversation;
+use chrono::{DateTime, Local};
+use chrono_humanize::{Accuracy, HumanTime, Tense};
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 /// Run fzf to allow the user to select a conversation
-pub fn select_conversation(conversations: &[Conversation]) -> Result<PathBuf> {
+pub fn select_conversation(
+    conversations: &[Conversation],
+    use_relative_time: bool,
+) -> Result<PathBuf> {
     let mut child = Command::new("fzf")
         .args([
             "--height",
@@ -30,7 +35,11 @@ pub fn select_conversation(conversations: &[Conversation]) -> Result<PathBuf> {
             .ok_or_else(|| AppError::FzfExecutionError("Failed to open stdin".to_string()))?;
 
         for conv in conversations {
-            let timestamp = conv.timestamp.format("%b %d, %H:%M");
+            let timestamp = if use_relative_time {
+                format_relative_time(conv.timestamp)
+            } else {
+                conv.timestamp.format("%b %d, %H:%M").to_string()
+            };
             let display_part = format!("[{}] {} | {}", conv.index, timestamp, conv.preview);
             // Format: INDEX<tab>DISPLAY_PART<tab>FULL_TEXT
             writeln!(
@@ -65,4 +74,9 @@ pub fn select_conversation(conversations: &[Conversation]) -> Result<PathBuf> {
     }
 
     Err(AppError::FzfSelectionParseError)
+}
+
+fn format_relative_time(timestamp: DateTime<Local>) -> String {
+    let delta = timestamp.signed_duration_since(Local::now());
+    HumanTime::from(delta).to_text_en(Accuracy::Rough, Tense::Present)
 }

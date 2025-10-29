@@ -60,7 +60,7 @@ fn run() -> Result<()> {
     }
 
     // Use fzf to select a conversation
-    let selected_path = fzf::select_conversation(&conversations)?;
+    let selected_path = fzf::select_conversation(&conversations, args.relative_time)?;
 
     // Display the selected conversation
     display::display_conversation(&selected_path, args.no_tools)?;
