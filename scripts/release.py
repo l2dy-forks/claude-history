@@ -45,7 +45,9 @@ def read_package_info() -> Tuple[str, str]:
     version_match = re.search(r'(?m)^\s*version\s*=\s*"([^"]+)"\s*$', toml_text)
 
     if not name_match or not version_match:
-        sys.stderr.write("error: unable to extract package name/version from Cargo.toml\n")
+        sys.stderr.write(
+            "error: unable to extract package name/version from Cargo.toml\n"
+        )
         sys.exit(1)
 
     return name_match.group(1), version_match.group(1)
@@ -79,7 +81,7 @@ def update_cargo_files(crate_name: str, new_version: str) -> None:
     toml_text = CARGO_TOML.read_text()
     new_toml_text, replaced = re.subn(
         r'(?m)^(version\s*=\s*")([^"]+)(")',
-        lambda m: f'{m.group(1)}{new_version}{m.group(3)}',
+        lambda m: f"{m.group(1)}{new_version}{m.group(3)}",
         toml_text,
         count=1,
     )
@@ -94,7 +96,7 @@ def update_cargo_files(crate_name: str, new_version: str) -> None:
             rf'(\[\[package\]\]\nname = "{re.escape(crate_name)}"\nversion = ")([^"]+)(")'
         )
         new_lock_text, lock_replaced = pattern.subn(
-            lambda m: f'{m.group(1)}{new_version}{m.group(3)}',
+            lambda m: f"{m.group(1)}{new_version}{m.group(3)}",
             lock_text,
         )
         if lock_replaced:
@@ -102,7 +104,7 @@ def update_cargo_files(crate_name: str, new_version: str) -> None:
 
 
 def commit_release(new_version: str) -> None:
-    message = f"Release v{new_version}"
+    message = f"release v{new_version}"
     paths_to_stage = ["Cargo.toml"]
     if CARGO_LOCK.exists():
         paths_to_stage.append("Cargo.lock")
@@ -111,7 +113,7 @@ def commit_release(new_version: str) -> None:
 
 
 def tag_release(new_version: str) -> None:
-    message = f"Release v{new_version}"
+    message = f"release v{new_version}"
     run(["git", "tag", "-a", f"v{new_version}", "-m", message])
 
 
@@ -135,7 +137,9 @@ def main() -> None:
 
     update_cargo_files(crate_name, new_version)
 
-    status_after_update = run_capture(["git", "status", "--porcelain", "--ignore-submodules"])
+    status_after_update = run_capture(
+        ["git", "status", "--porcelain", "--ignore-submodules"]
+    )
     if not status_after_update.strip():
         sys.stderr.write("error: version bump produced no changes; aborting\n")
         sys.exit(1)
