@@ -98,7 +98,7 @@ fn run() -> Result<()> {
     );
 
     // Load all conversations (reads each file once)
-    let conversations = history::load_conversations(&projects_dir, show_last)?;
+    let conversations = history::load_conversations(&projects_dir, show_last, args.debug)?;
 
     if conversations.is_empty() {
         return Err(AppError::NoHistoryFound(projects_dir.display().to_string()));

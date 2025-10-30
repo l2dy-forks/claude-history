@@ -34,20 +34,38 @@ pub fn get_claude_projects_dir(current_dir: &Path) -> Result<PathBuf> {
 }
 
 /// Find and process all conversation files in one pass
-pub fn load_conversations(projects_dir: &Path, show_last: bool) -> Result<Vec<Conversation>> {
+pub fn load_conversations(
+    projects_dir: &Path,
+    show_last: bool,
+    debug: bool,
+) -> Result<Vec<Conversation>> {
     // Find all JSONL files
     let mut file_paths = Vec::new();
+    let mut skipped_agent_files = 0;
 
     for entry in read_dir(projects_dir)? {
         let entry = entry?;
         let path = entry.path();
 
         if path.extension().and_then(|s| s.to_str()) == Some("jsonl")
-            && let Some(filename) = path.file_name().and_then(|f| f.to_str())
-            && !filename.starts_with("agent-")
-        {
-            file_paths.push(path);
-        }
+            && let Some(filename) = path.file_name().and_then(|f| f.to_str()) {
+                if filename.starts_with("agent-") {
+                    skipped_agent_files += 1;
+                    if debug {
+                        eprintln!("[DEBUG] Skipping agent file: {}", filename);
+                    }
+                } else {
+                    file_paths.push(path);
+                }
+            }
+    }
+
+    if debug {
+        eprintln!(
+            "[DEBUG] Found {} conversation files ({} agent files skipped)",
+            file_paths.len(),
+            skipped_agent_files
+        );
     }
 
     // Sort by modification time (newest first)
@@ -60,14 +78,40 @@ pub fn load_conversations(projects_dir: &Path, show_last: bool) -> Result<Vec<Co
 
     // Process each file once
     let mut conversations = Vec::new();
+
     for path in file_paths {
+        let filename = path
+            .file_name()
+            .and_then(|f| f.to_str())
+            .unwrap_or("unknown");
+
         // Get modification time for display
         let modified = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
 
-        if let Some(mut conversation) = process_conversation_file(path, show_last, modified)? {
-            conversation.index = conversations.len();
-            conversations.push(conversation);
+        match process_conversation_file(path.clone(), show_last, modified, debug) {
+            Ok(Some(mut conversation)) => {
+                if debug {
+                    eprintln!("[DEBUG] Loaded {}: {}", filename, conversation.preview);
+                }
+                conversation.index = conversations.len();
+                conversations.push(conversation);
+            }
+            Ok(None) => {
+                // File was filtered - reason already printed in debug output
+            }
+            Err(e) => {
+                if debug {
+                    eprintln!("[DEBUG] Error processing {}: {}", filename, e);
+                }
+            }
         }
+    }
+
+    if debug {
+        eprintln!(
+            "[DEBUG] Total conversations loaded: {}",
+            conversations.len()
+        );
     }
 
     Ok(conversations)
@@ -78,7 +122,12 @@ fn process_conversation_file(
     path: PathBuf,
     show_last: bool,
     modified: Option<std::time::SystemTime>,
+    debug: bool,
 ) -> Result<Option<Conversation>> {
+    let filename = path
+        .file_name()
+        .and_then(|f| f.to_str())
+        .unwrap_or("unknown");
     let file = File::open(&path)?;
     let reader = BufReader::new(file);
 
@@ -132,10 +181,22 @@ fn process_conversation_file(
     }
 
     // Check if this is a clear-only conversation or if preview is empty after filtering
-    if is_clear_only_conversation(&user_messages)
-        || all_parts.is_empty()
-        || preview_parts.is_empty()
-    {
+    if is_clear_only_conversation(&user_messages) {
+        if debug {
+            eprintln!("[DEBUG] Filtered {}: clear-only conversation", filename);
+        }
+        return Ok(None);
+    }
+
+    if all_parts.is_empty() || preview_parts.is_empty() {
+        if debug {
+            eprintln!(
+                "[DEBUG] Filtered {}: empty conversation (all_parts={}, preview_parts={})",
+                filename,
+                all_parts.len(),
+                preview_parts.len()
+            );
+        }
         return Ok(None);
     }
 

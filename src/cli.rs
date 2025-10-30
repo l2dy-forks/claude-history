@@ -51,4 +51,11 @@ pub struct Args {
         help = "Resume the selected conversation in Claude Code"
     )]
     pub resume: bool,
+
+    /// Show debug output for conversation loading
+    #[arg(
+        long,
+        help = "Print debug information about which conversations were found and filtered"
+    )]
+    pub debug: bool,
 }
