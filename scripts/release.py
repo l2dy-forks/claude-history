@@ -107,6 +107,10 @@ def commit_and_tag(new_version: str) -> None:
     run(["git", "tag", "-a", f"v{new_version}", "-m", message])
 
 
+def publish_crate() -> None:
+    run(["cargo", "publish"])
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Release helper for cargo crate")
     parser.add_argument(
@@ -127,6 +131,8 @@ def main() -> None:
     if not status_after_update.strip():
         sys.stderr.write("error: version bump produced no changes; aborting\n")
         sys.exit(1)
+
+    publish_crate()
 
     commit_and_tag(new_version)
 
