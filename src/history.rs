@@ -24,15 +24,49 @@ pub fn get_claude_projects_dir(current_dir: &Path) -> Result<PathBuf> {
         ))
     })?;
 
-    // Convert path to directory name by replacing slashes with dashes
-    // This matches Claude's existing directory naming scheme
-    let path_str = current_dir.to_string_lossy();
-    let converted = path_str.replace('/', "-");
+    let converted = convert_path_to_project_dir_name(current_dir);
 
     Ok(PathBuf::from(home_dir)
         .join(".claude")
         .join("projects")
         .join(converted))
+}
+
+/// Convert the current working directory into Claude's project directory name.
+fn convert_path_to_project_dir_name(path: &Path) -> String {
+    path.to_string_lossy()
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::convert_path_to_project_dir_name;
+    use std::path::Path;
+
+    #[test]
+    fn converts_various_separators_and_punctuation() {
+        let path = Path::new("/Users/raine/code/workmux/.worktrees/uncommitted");
+        let converted = convert_path_to_project_dir_name(path);
+        assert_eq!(
+            converted,
+            "-Users-raine-code-workmux--worktrees-uncommitted"
+        );
+    }
+
+    #[test]
+    fn preserves_alphanumeric_and_existing_dashes() {
+        let path = Path::new("/tmp/foo-Bar123");
+        let converted = convert_path_to_project_dir_name(path);
+        assert_eq!(converted, "-tmp-foo-Bar123");
+    }
 }
 
 /// Find and process all conversation files in one pass
