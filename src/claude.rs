@@ -95,17 +95,13 @@ pub fn extract_text_from_blocks(blocks: &[ContentBlock]) -> String {
             ContentBlock::Text { text } => Some(text.as_str()),
             _ => None,
         })
-        .take(1)
         .collect::<Vec<_>>()
         .join(" ")
-        .chars()
-        .take(100)
-        .collect()
 }
 
 pub fn extract_text_from_user(message: &UserMessage) -> String {
     match &message.content {
-        UserContent::String(text) => text.chars().take(100).collect(),
+        UserContent::String(text) => text.clone(),
         UserContent::Blocks(blocks) => extract_text_from_blocks(blocks),
     }
 }

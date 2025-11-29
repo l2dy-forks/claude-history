@@ -18,6 +18,7 @@ pub fn select_conversation(
             "--reverse",
             "--border",
             "--no-multi",
+            "--scheme=default",
             "--delimiter",
             "\t",
             "--with-nth",
@@ -40,13 +41,14 @@ pub fn select_conversation(
             } else {
                 conv.timestamp.format("%b %d, %H:%M").to_string()
             };
-            let display_part = format!("[{}] {} | {}", conv.index, timestamp, conv.preview);
-            // Format: INDEX<tab>DISPLAY_PART<tab>FULL_TEXT
-            writeln!(
-                stdin,
-                "{}\t{}\t{}",
-                conv.index, display_part, conv.full_text
-            )?;
+            // Include full_text in the display so fzf can search it
+            // (fzf doesn't search hidden fields when using --with-nth)
+            let display_part = format!(
+                "[{}] {} | {} {}",
+                conv.index, timestamp, conv.preview, conv.full_text
+            );
+            // Format: INDEX<tab>DISPLAY_PART
+            writeln!(stdin, "{}\t{}", conv.index, display_part)?;
         }
         stdin.flush()?;
     }
