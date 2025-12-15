@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.1.10 (2025-12-15)
+
+- Added a specific error message when fzf version is too old (requires 0.67.0+)
+
 ## v0.1.9 (2025-12-14)
 
 - Added color highlighting to the fzf picker
