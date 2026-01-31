@@ -37,6 +37,8 @@ fn render_search_bar(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_list(frame: &mut Frame, app: &App, area: Rect) {
+    let width = area.width as usize;
+
     let items: Vec<ListItem> = app
         .filtered()
         .iter()
@@ -55,28 +57,30 @@ fn render_list(frame: &mut Frame, app: &App, area: Rect) {
             // Selection indicator
             let indicator = if is_selected { "▶ " } else { "  " };
 
-            // First line: ▶ [project] timestamp
-            let mut header_spans = Vec::new();
-            header_spans.push(Span::styled(
-                indicator,
-                Style::default().fg(Color::Yellow),
-            ));
-            if let Some(ref name) = conv.project_name {
-                header_spans.push(Span::styled(
-                    format!("[{}] ", name),
-                    Style::default().fg(Color::Cyan),
-                ));
-            }
-            header_spans.push(Span::styled(
-                timestamp,
-                Style::default().fg(Color::DarkGray),
-            ));
-            let header = Line::from(header_spans);
+            // Build left part: indicator + project
+            let project_part = conv
+                .project_name
+                .as_ref()
+                .map(|name| name.to_string())
+                .unwrap_or_default();
+
+            // Calculate padding for right-aligned timestamp
+            let left_len = indicator.chars().count() + project_part.chars().count();
+            let right_len = timestamp.chars().count();
+            let padding = width.saturating_sub(left_len + right_len + 1);
+
+            // First line: ▶ [project]                    timestamp
+            let header = Line::from(vec![
+                Span::styled(indicator, Style::default().fg(Color::Yellow)),
+                Span::styled(project_part, Style::default().fg(Color::Cyan)),
+                Span::raw(" ".repeat(padding)),
+                Span::styled(timestamp, Style::default().fg(Color::DarkGray)),
+            ]);
 
             // Second line: indented preview text (sanitize newlines)
             let preview_text = conv.preview.replace('\n', " ");
             // Truncate preview to fit terminal width with some margin
-            let max_preview_len = area.width.saturating_sub(4) as usize;
+            let max_preview_len = width.saturating_sub(4);
             let truncated_preview = if preview_text.chars().count() > max_preview_len {
                 let truncated: String = preview_text.chars().take(max_preview_len.saturating_sub(1)).collect();
                 format!("{}…", truncated)
