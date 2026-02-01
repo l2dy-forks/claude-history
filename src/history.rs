@@ -577,8 +577,19 @@ pub fn load_conversations(
     // Ensure deterministic ordering after parallel processing
     conversations.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
 
+    // Inject project info into each conversation
+    let fallback_path = projects_dir
+        .file_name()
+        .map(|n| decode_project_dir_name_to_path(&n.to_string_lossy()))
+        .unwrap_or_default();
+
     for (idx, conv) in conversations.iter_mut().enumerate() {
         conv.index = idx;
+
+        // Prefer the cwd extracted from the JSONL file, fall back to decoded path
+        let project_path = conv.cwd.clone().unwrap_or_else(|| fallback_path.clone());
+        conv.project_name = Some(format_short_name_from_path(&project_path));
+        conv.project_path = Some(project_path);
     }
 
     if debug {
