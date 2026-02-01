@@ -11,6 +11,17 @@ default:
 [parallel]
 check: format clippy-fix build
 
+# Run check and fail if there are uncommitted changes (for CI)
+check-ci: check
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! git diff --quiet || ! git diff --cached --quiet; then
+        echo "Error: check caused uncommitted changes"
+        echo "Run 'just check' locally and commit the results"
+        git diff --stat
+        exit 1
+    fi
+
 # Format Rust files
 format:
     cargo fmt --all
