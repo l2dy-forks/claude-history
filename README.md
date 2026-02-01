@@ -74,9 +74,14 @@ preview.
 
 ### Search
 
-Search is case-insensitive substring matching. Results are ranked by a
-combination of match frequency and recency, so recent conversations with more
-matches appear first.
+Search uses fuzzy word matching with the following features:
+
+- **Case-insensitive**: "harden" matches "HARDENED"
+- **Underscore as separator**: "harden runtime" matches "HARDENED_RUNTIME"
+- **Prefix matching**: "harden" matches "hardened", "hardening"
+- **Multi-word AND logic**: all query words must match
+
+Results are ranked by recency, so recent conversations appear first.
 
 ```
 View Claude conversation history
