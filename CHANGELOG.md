@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.16 (2026-02-01)
+
+- Fixed a crash when using global search (`-g`) that could occur when deleting
+  conversations
+
 ## v0.1.15 (2026-02-01)
 
 - Added ability to delete conversations from the TUI (press `Ctrl+D`, confirm
