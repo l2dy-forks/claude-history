@@ -4,6 +4,9 @@ use chrono_humanize::{Accuracy, HumanTime, Tense};
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
 
+/// Lines per conversation item (header + preview + separator)
+const LINES_PER_ITEM: usize = 3;
+
 /// Render the TUI
 pub fn render(frame: &mut Frame, app: &App) {
     let area = frame.area();
@@ -69,44 +72,59 @@ fn render_list(frame: &mut Frame, app: &App, area: Rect) {
             let right_len = timestamp.chars().count();
             let padding = width.saturating_sub(left_len + right_len + 1);
 
-            // First line: ▶ [project]                    timestamp
+            // Header line: ▶ project-name                    timestamp
+            let project_style = if is_selected {
+                Style::default().fg(Color::White).bold()
+            } else {
+                Style::default().fg(Color::White)
+            };
+
+            let selection_bg = if is_selected {
+                Style::default().bg(Color::Rgb(45, 45, 55))
+            } else {
+                Style::default()
+            };
+
             let header = Line::from(vec![
-                Span::styled(indicator, Style::default().fg(Color::Yellow)),
-                Span::styled(project_part, Style::default().fg(Color::Cyan)),
+                Span::styled(indicator, Style::default().fg(Color::Yellow).bold()),
+                Span::styled(project_part, project_style),
                 Span::raw(" ".repeat(padding)),
                 Span::styled(timestamp, Style::default().fg(Color::DarkGray)),
-            ]);
+            ])
+            .style(selection_bg);
 
             // Preview line: sanitized and truncated
             let preview_text = sanitize_preview(&conv.preview);
             let max_preview_len = width.saturating_sub(4);
             let truncated_preview = if preview_text.chars().count() > max_preview_len {
-                let truncated: String = preview_text.chars().take(max_preview_len.saturating_sub(1)).collect();
+                let truncated: String =
+                    preview_text.chars().take(max_preview_len.saturating_sub(1)).collect();
                 format!("{}…", truncated)
             } else {
                 preview_text
             };
 
-            let preview_style = Style::default().fg(Color::Gray);
+            let preview_style = Style::default().fg(Color::Rgb(110, 110, 110));
             let preview = Line::from(vec![
-                Span::raw("  "), // indent to align with text after indicator
+                Span::raw("  "),
                 Span::styled(truncated_preview, preview_style),
+            ])
+            .style(selection_bg);
+
+            // Separator line: dim horizontal rule
+            let separator_char = "─".repeat(width.saturating_sub(2));
+            let separator = Line::from(vec![
+                Span::raw(" "),
+                Span::styled(separator_char, Style::default().fg(Color::Rgb(50, 50, 50))),
             ]);
 
-            // Combine into two-line item
-            let content = vec![header, preview];
-
-            let mut item = ListItem::new(content);
-            if is_selected {
-                item = item.style(Style::default().bg(Color::Rgb(40, 40, 40)));
-            }
-
-            item
+            // Combine into three-line item
+            ListItem::new(vec![header, preview, separator])
         })
         .collect();
 
     // Calculate visible range to show selected item
-    let items_per_page = (area.height as usize) / 2; // Two lines per item
+    let items_per_page = (area.height as usize) / LINES_PER_ITEM;
 
     let offset = match (app.selected(), items_per_page) {
         (Some(sel), n) if n > 0 => (sel / n) * n,
