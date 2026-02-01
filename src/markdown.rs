@@ -128,6 +128,13 @@ impl MarkdownRenderer {
             }
             Tag::List(start) => {
                 self.flush_pending();
+                // Add blank line before list for visual separation
+                if !self.output.is_empty() && !self.output.ends_with("\n\n") {
+                    if !self.output.ends_with('\n') {
+                        self.output.push('\n');
+                    }
+                    self.output.push('\n');
+                }
                 let depth = self.list_stack.len();
                 self.list_stack.push(ListContext {
                     index: start,
@@ -459,5 +466,19 @@ Next paragraph here."#;
         let result = render_markdown(input, 80);
         eprintln!("DEBUG output:\n{}", result);
         eprintln!("DEBUG escaped: {:?}", result);
+    }
+
+    #[test]
+    fn test_blank_line_before_list() {
+        let input = "Some intro text:\n1. First item\n2. Second item";
+        let result = render_markdown(input, 80);
+        eprintln!("DEBUG output:\n{}", result);
+        eprintln!("DEBUG escaped: {:?}", result);
+        // Should have blank line between text and list
+        assert!(
+            result.contains("text:\n\n"),
+            "Expected blank line before list, got: {:?}",
+            result
+        );
     }
 }
