@@ -66,6 +66,7 @@ preview.
 | Key                     | Action                    |
 | ----------------------- | ------------------------- |
 | `↑` / `↓`               | Move selection            |
+| `←` / `→`               | Move cursor in search     |
 | `Ctrl+P` / `Ctrl+N`     | Move selection (vi-style) |
 | `Page Up` / `Page Down` | Jump by page              |
 | `Home` / `End`          | Jump to first/last        |
