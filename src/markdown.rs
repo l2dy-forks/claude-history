@@ -250,8 +250,8 @@ impl MarkdownRenderer {
     }
 
     fn inline_code(&mut self, code: &str) {
-        // Inline code with background styling (no backticks - background distinguishes it)
-        let styled = code.on_bright_black().to_string();
+        // Inline code with subtle blueish color (no backticks - color distinguishes it)
+        let styled = code.truecolor(147, 161, 199).to_string();
         self.pending_text.push_str(&styled);
     }
 
