@@ -385,6 +385,12 @@ impl App {
                 self.select_prev();
                 None
             }
+            KeyCode::Char('d') if modifiers.contains(KeyModifiers::CONTROL) => {
+                if self.get_selected_path().is_some() {
+                    self.mode = Mode::ConfirmDelete;
+                }
+                None
+            }
             KeyCode::Char(c) => {
                 self.query.push(c);
                 self.update_filter();
