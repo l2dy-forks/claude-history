@@ -106,6 +106,13 @@ fn render_list(frame: &mut Frame, app: &App, area: Rect) {
                 conv.timestamp.format("%b %d, %H:%M").to_string()
             };
 
+            // Format message count
+            let msg_count = if conv.message_count == 1 {
+                "  1 msg".to_string()
+            } else {
+                format!("  {} msgs", conv.message_count)
+            };
+
             // Selection indicator: vertical bar for all rows (with left padding)
             let indicator = " ▌ ";
             let indicator_style = if is_selected {
@@ -121,9 +128,9 @@ fn render_list(frame: &mut Frame, app: &App, area: Rect) {
                 .map(|name| name.to_string())
                 .unwrap_or_default();
 
-            // Calculate padding for right-aligned timestamp
+            // Calculate padding for right-aligned timestamp + message count
             let left_len = indicator.chars().count() + project_part.chars().count();
-            let right_len = timestamp.chars().count();
+            let right_len = timestamp.chars().count() + msg_count.chars().count();
             let padding = width.saturating_sub(left_len + right_len + 1);
 
             // Header line: ▌ project-name                    timestamp
@@ -158,6 +165,10 @@ fn render_list(frame: &mut Frame, app: &App, area: Rect) {
             header_spans.push(Span::styled(
                 timestamp,
                 Style::default().fg(Color::Rgb(140, 140, 140)),
+            ));
+            header_spans.push(Span::styled(
+                msg_count,
+                Style::default().fg(Color::Rgb(90, 90, 90)),
             ));
 
             let header = Line::from(header_spans).style(selection_bg);

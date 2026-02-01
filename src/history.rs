@@ -18,6 +18,8 @@ pub struct Conversation {
     pub project_path: Option<PathBuf>,
     /// The working directory extracted from the JSONL file (the actual cwd)
     pub cwd: Option<PathBuf>,
+    /// Number of user and assistant messages in the conversation
+    pub message_count: usize,
 }
 
 pub struct Project {
@@ -622,6 +624,7 @@ fn process_conversation_file(
     let mut seen_real_user_message = false;
     let mut skip_next_assistant = false;
     let mut extracted_cwd: Option<PathBuf> = None;
+    let mut message_count: usize = 0;
 
     for line in reader.lines() {
         let line = line?;
@@ -654,9 +657,11 @@ fn process_conversation_file(
                     all_parts.push(text.clone());
 
                     // Check if this is a warmup message (first user message is "Warmup")
-                    if !seen_real_user_message && text.trim() == "Warmup" {
+                    let is_warmup = !seen_real_user_message && text.trim() == "Warmup";
+                    if is_warmup {
                         skip_next_assistant = true;
                     } else {
+                        message_count += 1;
                         preview_parts.push(text);
                         seen_real_user_message = true;
                     }
@@ -671,6 +676,7 @@ fn process_conversation_file(
                             skip_next_assistant = false;
                         } else if seen_real_user_message {
                             // Only add assistant messages to preview after we've seen a real user message
+                            message_count += 1;
                             preview_parts.push(text);
                         }
                     }
@@ -740,6 +746,7 @@ fn process_conversation_file(
         project_name: None,
         project_path: None,
         cwd: extracted_cwd,
+        message_count,
     }))
 }
 
