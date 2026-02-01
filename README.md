@@ -1,22 +1,6 @@
 # claude-history
 
-```
-╭──────────────────────────────────────────────────────────────────────────────────────╮
-│ ❯ harden                                                                     5/1136  │
-│──────────────────────────────────────────────────────────────────────────────────────│
-│ ▌ workmux/workmux-merge-cleanup-error                       150 msgs · Jan 14, 21:43 │
-│ ▌ ## Description Running `workmux merge` with a bare repository + linked worktrees … │
-│ ▌ …ktree Would you like me to apply the hardening (absolute path normalization) to…  │
-│──────────────────────────────────────────────────────────────────────────────────────│
-│ ▌ raine                                                      68 msgs · Jan 30, 19:36 │
-│ ▌ How can I sync my taskwarrior notes between devices? ... There are several approa… │
-│ ▌ …` user for the service - Add systemd hardening flags (`NoNewPrivileges`, `Priva…  │
-│──────────────────────────────────────────────────────────────────────────────────────│
-│ ▌ WalkingMate                                                 2 msgs · Jan 21, 19:25 │
-│ ▌ diff --git c/WalkingMate.xcodeproj/project.pbxproj i/WalkingMate.xcodeproj/projec… │
-│ ▌ …@@ ENABLE_APP_SANDBOX = YES; ENABLE_HARDENED_RUNTIME = YES; ENABLE_INCOMING_NE…   │
-╰──────────────────────────────────────────────────────────────────────────────────────╯
-```
+<img src="meta/claude-history-demo.gif" width="747">
 
 `claude-history` is a companion CLI for Claude Code. It lets you search recent
 conversations recorded in Claude's local project history with a built-in
