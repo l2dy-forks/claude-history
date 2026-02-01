@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.1.13 (2026-02-01)
+
+- Replaced fzf with a built-in terminal UI
+
 ## v0.1.12 (2026-01-11)
 
 - Fixed project path detection failing for usernames containing dots (e.g.,
