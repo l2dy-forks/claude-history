@@ -2,7 +2,7 @@ use crate::tui::app::App;
 use chrono::{DateTime, Local};
 use chrono_humanize::{Accuracy, HumanTime, Tense};
 use ratatui::prelude::*;
-use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
+use ratatui::widgets::{Block, BorderType, Borders, List, ListItem, Paragraph};
 
 /// Lines per conversation item (header + preview + separator)
 const LINES_PER_ITEM: usize = 3;
@@ -11,11 +11,19 @@ const LINES_PER_ITEM: usize = 3;
 pub fn render(frame: &mut Frame, app: &App) {
     let area = frame.area();
 
-    // Layout: search bar at top, list below
+    // Outer border wrapping the entire app
+    let outer_block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(Color::Rgb(60, 60, 60)));
+    let inner_area = outer_block.inner(area);
+    frame.render_widget(outer_block, area);
+
+    // Layout: search bar at top, list below (inside the border)
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(3), Constraint::Min(1)])
-        .split(area);
+        .constraints([Constraint::Length(2), Constraint::Min(1)])
+        .split(inner_area);
 
     render_search_bar(frame, app, chunks[0]);
     render_list(frame, app, chunks[1]);
