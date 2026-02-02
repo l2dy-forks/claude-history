@@ -228,16 +228,14 @@ impl TuiMarkdownRenderer {
             Tag::Paragraph => {
                 // Add blank line before paragraph if we have content
                 if !self.lines.is_empty() || !self.current_line.is_empty() {
-                    self.flush_line();
-                    if !self.lines.is_empty() {
-                        self.lines.push(StyledLine { spans: vec![] });
-                    }
+                    self.ensure_blank_line();
                 }
             }
             Tag::Heading { level, .. } => {
-                self.flush_line();
                 if !self.lines.is_empty() {
-                    self.lines.push(StyledLine { spans: vec![] });
+                    self.ensure_blank_line();
+                } else {
+                    self.flush_line();
                 }
                 let depth = heading_level_to_usize(level);
                 let prefix = format!("{} ", "#".repeat(depth));
@@ -252,9 +250,10 @@ impl TuiMarkdownRenderer {
                 self.style_stack.push(MarkdownStyle::Heading);
             }
             Tag::CodeBlock(kind) => {
-                self.flush_line();
                 if !self.lines.is_empty() {
-                    self.lines.push(StyledLine { spans: vec![] });
+                    self.ensure_blank_line();
+                } else {
+                    self.flush_line();
                 }
                 self.in_code_block = true;
                 self.code_block_content.clear();
@@ -277,9 +276,11 @@ impl TuiMarkdownRenderer {
                 self.flush_line();
             }
             Tag::List(start) => {
-                self.flush_line();
+                // Add blank line before top-level lists only
                 if !self.lines.is_empty() && self.list_stack.is_empty() {
-                    self.lines.push(StyledLine { spans: vec![] });
+                    self.ensure_blank_line();
+                } else {
+                    self.flush_line();
                 }
                 let depth = self.list_stack.len();
                 self.list_stack.push(ListContext {
@@ -458,13 +459,15 @@ impl TuiMarkdownRenderer {
             self.lines.push(StyledLine {
                 spans: std::mem::take(&mut self.current_line),
             });
-        } else if self.lines.is_empty() {
-            // Don't add empty line at start
-        } else {
-            // Add empty line
-            self.lines.push(StyledLine { spans: vec![] });
         }
         self.current_width = 0;
+    }
+
+    fn ensure_blank_line(&mut self) {
+        self.flush_line();
+        if self.lines.last().is_some_and(|l| !l.spans.is_empty()) {
+            self.lines.push(StyledLine { spans: vec![] });
+        }
     }
 
     fn current_style(&self) -> LineStyle {
