@@ -10,6 +10,7 @@ use std::path::PathBuf;
 #[serde(deny_unknown_fields)]
 pub struct ConfigFile {
     pub display: Option<DisplayConfig>,
+    pub resume: Option<ResumeConfig>,
 }
 
 #[derive(Deserialize, Debug, Default)]
@@ -21,6 +22,12 @@ pub struct DisplayConfig {
     pub show_thinking: Option<bool>,
     pub plain: Option<bool>,
     pub pager: Option<bool>,
+}
+
+#[derive(Deserialize, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct ResumeConfig {
+    pub default_args: Option<Vec<String>>,
 }
 
 /// Returns the path to the configuration file: ~/.config/claude-history/config.toml
