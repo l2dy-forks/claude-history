@@ -19,6 +19,7 @@ const CYAN: (u8, u8, u8) = (0, 255, 255);
 const CODE_COLOR: (u8, u8, u8) = (147, 161, 199);
 const GREEN: (u8, u8, u8) = (0, 255, 0);
 const BLUE: (u8, u8, u8) = (100, 149, 237);
+const THINKING_TEXT: (u8, u8, u8) = (140, 145, 150);
 
 /// Options for rendering a conversation
 pub struct RenderOptions {
@@ -134,7 +135,8 @@ fn render_assistant_message(
         for block in &message.content {
             if let ContentBlock::Thinking { thinking, .. } = block {
                 let md_lines = render_markdown_to_lines(thinking, options.content_width);
-                render_ledger_block_styled(lines, "Thinking", DIM_TEAL, false, md_lines);
+                let styled_lines = apply_thinking_style(md_lines);
+                render_ledger_block_styled(lines, "Thinking", DIM_TEAL, false, styled_lines);
                 printed = true;
             }
         }
@@ -510,6 +512,24 @@ fn heading_level_to_usize(level: HeadingLevel) -> usize {
     }
 }
 
+/// Apply italic and dimmed styling to thinking block content
+fn apply_thinking_style(styled_lines: Vec<StyledLine>) -> Vec<StyledLine> {
+    styled_lines
+        .into_iter()
+        .map(|line| StyledLine {
+            spans: line
+                .spans
+                .into_iter()
+                .map(|(text, mut style)| {
+                    style.italic = true;
+                    style.fg = Some(THINKING_TEXT);
+                    (text, style)
+                })
+                .collect(),
+        })
+        .collect()
+}
+
 /// Render ledger block with styled markdown lines
 fn render_ledger_block_styled(
     lines: &mut Vec<RenderedLine>,
@@ -534,6 +554,7 @@ fn render_ledger_block_styled(
                 fg: Some(color),
                 bold,
                 dimmed: false,
+                italic: false,
             },
         ));
 
@@ -567,6 +588,7 @@ fn render_ledger_block_styled(
                     fg: Some(color),
                     bold,
                     dimmed: false,
+                    italic: false,
                 },
             ),
             (
@@ -605,6 +627,7 @@ fn render_ledger_block_plain(
                 fg: Some(color),
                 bold,
                 dimmed: false,
+                italic: false,
             },
         ));
 

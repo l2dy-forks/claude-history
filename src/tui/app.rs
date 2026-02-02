@@ -88,6 +88,7 @@ pub struct LineStyle {
     pub fg: Option<(u8, u8, u8)>,
     pub bold: bool,
     pub dimmed: bool,
+    pub italic: bool,
 }
 
 /// Loading state for the TUI

@@ -327,6 +327,9 @@ fn styled_span(text: &str, style: &LineStyle) -> Span<'static> {
     if style.bold {
         s = s.bold();
     }
+    if style.italic {
+        s = s.italic();
+    }
     if style.dimmed {
         s = s.fg(Color::Rgb(100, 100, 100));
     }
