@@ -48,7 +48,6 @@ impl ExportFormat {
 
 /// Result of an export operation
 pub struct ExportResult {
-    pub success: bool,
     pub message: String,
 }
 
@@ -62,7 +61,6 @@ pub fn export_to_file(source_path: &Path, format: ExportFormat) -> ExportResult 
         Ok(c) => c,
         Err(e) => {
             return ExportResult {
-                success: false,
                 message: format!("Failed to read: {}", e),
             };
         }
@@ -70,11 +68,9 @@ pub fn export_to_file(source_path: &Path, format: ExportFormat) -> ExportResult 
 
     match fs::write(&filename, &content) {
         Ok(_) => ExportResult {
-            success: true,
             message: format!("Exported to {}", filename),
         },
         Err(e) => ExportResult {
-            success: false,
             message: format!("Failed to write: {}", e),
         },
     }
@@ -86,7 +82,6 @@ pub fn export_to_clipboard(source_path: &Path, format: ExportFormat) -> ExportRe
         Ok(c) => c,
         Err(e) => {
             return ExportResult {
-                success: false,
                 message: format!("Failed to read: {}", e),
             };
         }
@@ -95,16 +90,13 @@ pub fn export_to_clipboard(source_path: &Path, format: ExportFormat) -> ExportRe
     match Clipboard::new() {
         Ok(mut clipboard) => match clipboard.set_text(&content) {
             Ok(_) => ExportResult {
-                success: true,
                 message: "Copied to clipboard".to_string(),
             },
             Err(e) => ExportResult {
-                success: false,
                 message: format!("Clipboard error: {}", e),
             },
         },
         Err(e) => ExportResult {
-            success: false,
             message: format!("Clipboard unavailable: {}", e),
         },
     }
@@ -246,9 +238,10 @@ fn extract_user_text(message: &UserMessage) -> Option<String> {
         UserContent::Blocks(blocks) => {
             for block in blocks {
                 if let ContentBlock::Text { text } = block
-                    && let Some(processed) = process_command_text(text) {
-                        return Some(processed);
-                    }
+                    && let Some(processed) = process_command_text(text)
+                {
+                    return Some(processed);
+                }
             }
             None
         }
@@ -272,12 +265,13 @@ fn process_command_text(text: &str) -> Option<String> {
 
     // Handle <command-name> tags
     if let Some(start) = trimmed.find("<command-name>")
-        && let Some(end) = trimmed.find("</command-name>") {
-            let content_start = start + "<command-name>".len();
-            if content_start < end {
-                return Some(trimmed[content_start..end].to_string());
-            }
+        && let Some(end) = trimmed.find("</command-name>")
+    {
+        let content_start = start + "<command-name>".len();
+        if content_start < end {
+            return Some(trimmed[content_start..end].to_string());
         }
+    }
 
     Some(text.to_string())
 }
