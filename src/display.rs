@@ -504,8 +504,9 @@ fn process_entry<F: OutputFormatter>(
             // Skip metadata entries
         }
         LogEntry::Progress { data, .. } => {
-            // Handle agent_progress entries
-            if let Some(agent_progress) = crate::claude::parse_agent_progress(data) {
+            // Handle agent_progress entries (only when show_thinking is enabled)
+            if show_thinking && let Some(agent_progress) = crate::claude::parse_agent_progress(data)
+            {
                 process_agent_message(formatter, &agent_progress, no_tools);
             }
         }
@@ -670,10 +671,11 @@ fn process_agent_message<F: OutputFormatter>(
             // Tool results
             for block in blocks {
                 if let ContentBlock::ToolResult { content, .. } = block
-                    && !no_tools {
-                        formatter.format_agent_tool_result(agent_id, content.as_ref());
-                        printed = true;
-                    }
+                    && !no_tools
+                {
+                    formatter.format_agent_tool_result(agent_id, content.as_ref());
+                    printed = true;
+                }
             }
 
             if printed {
@@ -705,10 +707,11 @@ fn process_agent_message<F: OutputFormatter>(
             // Tool calls
             for block in blocks {
                 if let ContentBlock::ToolUse { name, input, .. } = block
-                    && !no_tools {
-                        formatter.format_agent_tool_call(agent_id, name, input);
-                        printed = true;
-                    }
+                    && !no_tools
+                {
+                    formatter.format_agent_tool_call(agent_id, name, input);
+                    printed = true;
+                }
             }
 
             if printed {

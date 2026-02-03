@@ -58,8 +58,10 @@ fn render_entry(lines: &mut Vec<RenderedLine>, entry: &LogEntry, options: &Rende
         | LogEntry::FileHistorySnapshot { .. }
         | LogEntry::System { .. } => {}
         LogEntry::Progress { data, .. } => {
-            // Handle agent_progress entries
-            if let Some(agent_progress) = crate::claude::parse_agent_progress(data) {
+            // Handle agent_progress entries (only when show_thinking is enabled)
+            if options.show_thinking
+                && let Some(agent_progress) = crate::claude::parse_agent_progress(data)
+            {
                 render_agent_message(lines, &agent_progress, options);
             }
         }
