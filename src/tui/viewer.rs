@@ -727,7 +727,22 @@ fn process_command_message(text: &str) -> Option<String> {
     {
         let content_start = start + "<command-name>".len();
         if content_start < end {
-            return Some(trimmed[content_start..end].to_string());
+            let command_name = &trimmed[content_start..end];
+
+            // Also extract command args if present
+            if let Some(args_start) = trimmed.find("<command-args>")
+                && let Some(args_end) = trimmed.find("</command-args>")
+            {
+                let args_content_start = args_start + "<command-args>".len();
+                if args_content_start < args_end {
+                    let args = trimmed[args_content_start..args_end].trim();
+                    if !args.is_empty() {
+                        return Some(format!("{} {}", command_name, args));
+                    }
+                }
+            }
+
+            return Some(command_name.to_string());
         }
     }
 
