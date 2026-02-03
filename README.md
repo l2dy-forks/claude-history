@@ -53,13 +53,14 @@ preview.
 | `↑` / `↓`               | Move selection                  |
 | `←` / `→`               | Move cursor in search           |
 | `Ctrl+P` / `Ctrl+N`     | Move selection (vi-style)       |
+| `Ctrl+D` / `Ctrl+U`     | Half page down/up (vim-style)   |
 | `Page Up` / `Page Down` | Jump by page                    |
 | `Home` / `End`          | Jump to first/last              |
 | `Enter`                 | Open conversation viewer        |
 | `Ctrl+O`                | Select and exit (for scripting) |
 | `Ctrl+W`                | Delete word before cursor       |
 | `Ctrl+R`                | Resume conversation             |
-| `Ctrl+D`                | Delete conversation             |
+| `Ctrl+X`                | Delete conversation             |
 | `Esc` / `Ctrl+C`        | Quit                            |
 
 ### Keyboard navigation (Viewer mode)
@@ -68,8 +69,8 @@ preview.
 | ----------------------- | --------------------------------------------------- |
 | `j` / `↓`               | Scroll down                                         |
 | `k` / `↑`               | Scroll up                                           |
-| `d`                     | Half page down                                      |
-| `u`                     | Half page up                                        |
+| `d` / `Ctrl+D`          | Half page down                                      |
+| `u` / `Ctrl+U`          | Half page up                                        |
 | `Page Down`             | Full page down                                      |
 | `Page Up`               | Full page up                                        |
 | `g` / `Home`            | Jump to top                                         |
@@ -81,7 +82,7 @@ preview.
 | `T`                     | Toggle thinking                                     |
 | `p`                     | Show file path                                      |
 | `Ctrl+R`                | Resume conversation                                 |
-| `Ctrl+D`                | Delete conversation                                 |
+| `Ctrl+X`                | Delete conversation                                 |
 | `q` / `Esc`             | Return to list (or quit in direct file input mode) |
 
 ### Search

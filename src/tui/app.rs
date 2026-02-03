@@ -391,6 +391,23 @@ impl App {
         }
     }
 
+    /// Move selection up by half a page (vim-style Ctrl-U)
+    fn select_half_page_up(&mut self, viewport_height: usize) {
+        if let Some(selected) = self.selected {
+            let half_page = viewport_height / 2;
+            self.selected = Some(selected.saturating_sub(half_page));
+        }
+    }
+
+    /// Move selection down by half a page (vim-style Ctrl-D)
+    fn select_half_page_down(&mut self, viewport_height: usize) {
+        if let Some(selected) = self.selected {
+            let half_page = viewport_height / 2;
+            let new_selected = (selected + half_page).min(self.filtered.len().saturating_sub(1));
+            self.selected = Some(new_selected);
+        }
+    }
+
     /// Get the currently selected conversation path
     fn get_selected_path(&self) -> Option<PathBuf> {
         self.selected
@@ -665,7 +682,7 @@ impl App {
         // Delegate based on app mode
         match &self.app_mode {
             AppMode::View(_) => self.handle_view_key(code, modifiers, viewport_height),
-            AppMode::List => self.handle_list_key(code, modifiers),
+            AppMode::List => self.handle_list_key(code, modifiers, viewport_height),
         }
     }
 
@@ -739,7 +756,7 @@ impl App {
             }
 
             // Scroll up half page
-            KeyCode::Char('u') => {
+            KeyCode::Char('u') if !modifiers.contains(KeyModifiers::CONTROL) => {
                 let half_page = viewport_height / 2;
                 state.scroll_offset = state.scroll_offset.saturating_sub(half_page);
                 None
@@ -852,8 +869,22 @@ impl App {
                 None
             }
 
-            // Ctrl+D - delete (disabled in single file mode for security)
+            // Ctrl+D - half page down (vim-style, same as 'd')
             KeyCode::Char('d') if modifiers.contains(KeyModifiers::CONTROL) => {
+                let half_page = viewport_height / 2;
+                state.scroll_offset = (state.scroll_offset + half_page).min(max_scroll);
+                None
+            }
+
+            // Ctrl+U - half page up (vim-style, same as 'u')
+            KeyCode::Char('u') if modifiers.contains(KeyModifiers::CONTROL) => {
+                let half_page = viewport_height / 2;
+                state.scroll_offset = state.scroll_offset.saturating_sub(half_page);
+                None
+            }
+
+            // Ctrl+X - delete (disabled in single file mode for security)
+            KeyCode::Char('x') if modifiers.contains(KeyModifiers::CONTROL) => {
                 if !self.single_file_mode {
                     self.dialog_mode = DialogMode::ConfirmDelete;
                 }
@@ -913,7 +944,12 @@ impl App {
     }
 
     /// Handle key events in list mode
-    fn handle_list_key(&mut self, code: KeyCode, modifiers: KeyModifiers) -> Option<Action> {
+    fn handle_list_key(
+        &mut self,
+        code: KeyCode,
+        modifiers: KeyModifiers,
+        viewport_height: usize,
+    ) -> Option<Action> {
         // During loading, allow navigation and typing but not Enter selection
         if self.is_loading() {
             return match code {
@@ -1047,7 +1083,18 @@ impl App {
                 self.select_prev();
                 None
             }
+            // Ctrl+D - half page down (vim-style)
             KeyCode::Char('d') if modifiers.contains(KeyModifiers::CONTROL) => {
+                self.select_half_page_down(viewport_height);
+                None
+            }
+            // Ctrl+U - half page up (vim-style)
+            KeyCode::Char('u') if modifiers.contains(KeyModifiers::CONTROL) => {
+                self.select_half_page_up(viewport_height);
+                None
+            }
+            // Ctrl+X - delete conversation
+            KeyCode::Char('x') if modifiers.contains(KeyModifiers::CONTROL) => {
                 if self.get_selected_path().is_some() {
                     self.dialog_mode = DialogMode::ConfirmDelete;
                 }
