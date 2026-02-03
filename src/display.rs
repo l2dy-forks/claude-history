@@ -70,6 +70,18 @@ trait OutputFormatter {
 
     /// End the current message block (add spacing)
     fn end_message(&mut self);
+
+    /// Format and output agent (subagent) user text content
+    fn format_agent_user_text(&mut self, agent_id: &str, text: &str);
+
+    /// Format and output agent (subagent) assistant text content
+    fn format_agent_assistant_text(&mut self, agent_id: &str, text: &str);
+
+    /// Format and output an agent tool call
+    fn format_agent_tool_call(&mut self, agent_id: &str, name: &str, input: &serde_json::Value);
+
+    /// Format and output an agent tool result
+    fn format_agent_tool_result(&mut self, agent_id: &str, content: Option<&serde_json::Value>);
 }
 
 /// Ledger-style formatter with markdown rendering and aligned columns
@@ -191,6 +203,37 @@ impl<W: Write + ?Sized> OutputFormatter for LedgerFormatter<'_, W> {
     fn end_message(&mut self) {
         let _ = writeln!(self.writer);
     }
+
+    fn format_agent_user_text(&mut self, agent_id: &str, text: &str) {
+        let rendered = render_markdown(text, self.content_width);
+        let name = format!("↳{}", short_agent_id(agent_id));
+        self.print_markdown(&name, |s| s.white().dimmed(), &rendered);
+    }
+
+    fn format_agent_assistant_text(&mut self, agent_id: &str, text: &str) {
+        let rendered = render_markdown(text, self.content_width);
+        let name = format!("↳{}", short_agent_id(agent_id));
+        self.print_markdown(&name, |s| s.custom_color(TEAL).dimmed(), &rendered);
+    }
+
+    fn format_agent_tool_call(&mut self, agent_id: &str, name: &str, input: &serde_json::Value) {
+        let tool_header = format!("<Calling: {}>", name);
+        let label = format!("↳{}", short_agent_id(agent_id));
+        self.print_lines(&label, |s| s.custom_color(DIM_TEAL).dimmed(), &tool_header);
+        if let Ok(formatted_input) = serde_json::to_string_pretty(input) {
+            self.print_continuation(&formatted_input);
+        }
+    }
+
+    fn format_agent_tool_result(&mut self, _agent_id: &str, content: Option<&serde_json::Value>) {
+        self.print_lines(
+            "  ↳ Tool",
+            |s| s.custom_color(DIM_TEAL).dimmed(),
+            "<Result>",
+        );
+        let content_str = format_tool_content(content);
+        self.print_continuation(&content_str);
+    }
 }
 
 /// Plain text formatter without formatting or alignment
@@ -224,6 +267,35 @@ impl OutputFormatter for PlainFormatter {
 
     fn end_message(&mut self) {
         println!();
+    }
+
+    fn format_agent_user_text(&mut self, agent_id: &str, text: &str) {
+        println!("  [{}] User: {}", short_agent_id(agent_id), text);
+    }
+
+    fn format_agent_assistant_text(&mut self, agent_id: &str, text: &str) {
+        println!("  [{}] Agent: {}", short_agent_id(agent_id), text);
+    }
+
+    fn format_agent_tool_call(&mut self, agent_id: &str, name: &str, input: &serde_json::Value) {
+        println!(
+            "  [{}] Agent: <Calling: {}>",
+            short_agent_id(agent_id),
+            name
+        );
+        if let Ok(formatted_input) = serde_json::to_string_pretty(input) {
+            for line in formatted_input.lines() {
+                println!("    {}", line);
+            }
+        }
+    }
+
+    fn format_agent_tool_result(&mut self, _agent_id: &str, content: Option<&serde_json::Value>) {
+        println!("    Tool: <Result>");
+        let content_str = format_tool_content(content);
+        for line in content_str.lines() {
+            println!("    {}", line);
+        }
     }
 }
 
@@ -428,9 +500,14 @@ fn process_entry<F: OutputFormatter>(
     match entry {
         LogEntry::Summary { .. }
         | LogEntry::FileHistorySnapshot { .. }
-        | LogEntry::System { .. }
-        | LogEntry::Progress { .. } => {
+        | LogEntry::System { .. } => {
             // Skip metadata entries
+        }
+        LogEntry::Progress { data, .. } => {
+            // Handle agent_progress entries
+            if let Some(agent_progress) = crate::claude::parse_agent_progress(data) {
+                process_agent_message(formatter, &agent_progress, no_tools);
+            }
         }
         LogEntry::User { message, .. } => {
             process_user_message(formatter, message, no_tools);
@@ -547,6 +624,98 @@ fn process_assistant_message<F: OutputFormatter>(
     // Only add spacing if we printed something
     if printed_content {
         formatter.end_message();
+    }
+}
+
+/// Get a truncated agent ID for display (max 7 characters)
+fn short_agent_id(agent_id: &str) -> &str {
+    &agent_id[..agent_id.len().min(7)]
+}
+
+/// Process an agent progress message using the provided formatter
+fn process_agent_message<F: OutputFormatter>(
+    formatter: &mut F,
+    agent_progress: &crate::claude::AgentProgressData,
+    no_tools: bool,
+) {
+    use crate::claude::{AgentContent, ContentBlock};
+
+    let agent_id = &agent_progress.agent_id;
+    let msg = &agent_progress.message;
+
+    match msg.message_type.as_str() {
+        "user" => {
+            // User messages in agent context are typically tool results or the initial prompt
+            let AgentContent::Blocks(blocks) = &msg.message.content;
+            let mut printed = false;
+
+            // Aggregate text blocks and render together
+            let texts: Vec<&str> = blocks
+                .iter()
+                .filter_map(|b| {
+                    if let ContentBlock::Text { text } = b {
+                        Some(text.as_str())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            if !texts.is_empty() {
+                let combined = texts.join("\n\n");
+                formatter.format_agent_user_text(agent_id, &combined);
+                printed = true;
+            }
+
+            // Tool results
+            for block in blocks {
+                if let ContentBlock::ToolResult { content, .. } = block
+                    && !no_tools {
+                        formatter.format_agent_tool_result(agent_id, content.as_ref());
+                        printed = true;
+                    }
+            }
+
+            if printed {
+                formatter.end_message();
+            }
+        }
+        "assistant" => {
+            let AgentContent::Blocks(blocks) = &msg.message.content;
+            let mut printed = false;
+
+            // Aggregate text blocks and render together
+            let texts: Vec<&str> = blocks
+                .iter()
+                .filter_map(|b| {
+                    if let ContentBlock::Text { text } = b {
+                        Some(text.as_str())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            if !texts.is_empty() {
+                let combined = texts.join("\n\n");
+                formatter.format_agent_assistant_text(agent_id, &combined);
+                printed = true;
+            }
+
+            // Tool calls
+            for block in blocks {
+                if let ContentBlock::ToolUse { name, input, .. } = block
+                    && !no_tools {
+                        formatter.format_agent_tool_call(agent_id, name, input);
+                        printed = true;
+                    }
+            }
+
+            if printed {
+                formatter.end_message();
+            }
+        }
+        _ => {}
     }
 }
 

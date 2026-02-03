@@ -56,8 +56,13 @@ fn render_entry(lines: &mut Vec<RenderedLine>, entry: &LogEntry, options: &Rende
     match entry {
         LogEntry::Summary { .. }
         | LogEntry::FileHistorySnapshot { .. }
-        | LogEntry::System { .. }
-        | LogEntry::Progress { .. } => {}
+        | LogEntry::System { .. } => {}
+        LogEntry::Progress { data, .. } => {
+            // Handle agent_progress entries
+            if let Some(agent_progress) = crate::claude::parse_agent_progress(data) {
+                render_agent_message(lines, &agent_progress, options);
+            }
+        }
         LogEntry::User { message, .. } => {
             render_user_message(lines, message, options);
         }
@@ -740,6 +745,252 @@ fn render_markdown_continuation(lines: &mut Vec<RenderedLine>, text: &str, conte
         for (text, style) in styled_line.spans {
             spans.push((text, style));
         }
+
+        lines.push(RenderedLine { spans });
+    }
+}
+
+/// Get a truncated agent ID for display (max 7 characters)
+fn short_agent_id(agent_id: &str) -> &str {
+    &agent_id[..agent_id.len().min(7)]
+}
+
+/// Render agent (subagent) progress message
+fn render_agent_message(
+    lines: &mut Vec<RenderedLine>,
+    agent_progress: &crate::claude::AgentProgressData,
+    options: &RenderOptions,
+) {
+    use crate::claude::{AgentContent, ContentBlock};
+
+    let agent_id = &agent_progress.agent_id;
+    let short_id = short_agent_id(agent_id);
+    let msg = &agent_progress.message;
+    let mut printed = false;
+
+    match msg.message_type.as_str() {
+        "user" => {
+            let AgentContent::Blocks(blocks) = &msg.message.content;
+
+            // Aggregate text blocks and render together
+            let texts: Vec<&str> = blocks
+                .iter()
+                .filter_map(|b| {
+                    if let ContentBlock::Text { text } = b {
+                        Some(text.as_str())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            if !texts.is_empty() {
+                let combined = texts.join("\n\n");
+                let md_lines = render_markdown_to_lines(&combined, options.content_width);
+                let name = format!("↳{}", short_id);
+                render_ledger_block_styled_dimmed(lines, &name, WHITE, md_lines);
+                printed = true;
+            }
+
+            // Tool results
+            if options.show_tools {
+                for block in blocks {
+                    if let ContentBlock::ToolResult { content, .. } = block {
+                        render_ledger_block_plain_dimmed(lines, "  ↳ Tool", DIM_TEAL, "<Result>");
+                        let content_str = format_tool_result_content(content.as_ref());
+                        render_continuation_dimmed(lines, &content_str);
+                        printed = true;
+                    }
+                }
+            }
+        }
+        "assistant" => {
+            let AgentContent::Blocks(blocks) = &msg.message.content;
+
+            // Aggregate text blocks and render together
+            let texts: Vec<&str> = blocks
+                .iter()
+                .filter_map(|b| {
+                    if let ContentBlock::Text { text } = b {
+                        Some(text.as_str())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            if !texts.is_empty() {
+                let combined = texts.join("\n\n");
+                let md_lines = render_markdown_to_lines(&combined, options.content_width);
+                let name = format!("↳{}", short_id);
+                render_ledger_block_styled_dimmed(lines, &name, TEAL, md_lines);
+                printed = true;
+            }
+
+            // Tool calls
+            if options.show_tools {
+                for block in blocks {
+                    if let ContentBlock::ToolUse { name, input, .. } = block {
+                        let header = format!("<Calling: {}>", name);
+                        let label = format!("↳{}", short_id);
+                        render_ledger_block_plain_dimmed(lines, &label, DIM_TEAL, &header);
+                        if let Ok(formatted) = serde_json::to_string_pretty(input) {
+                            render_continuation_dimmed(lines, &formatted);
+                        }
+                        printed = true;
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+
+    if printed {
+        lines.push(RenderedLine { spans: vec![] });
+    }
+}
+
+/// Render ledger block with styled markdown lines (dimmed for subagents)
+fn render_ledger_block_styled_dimmed(
+    lines: &mut Vec<RenderedLine>,
+    name: &str,
+    color: (u8, u8, u8),
+    styled_lines: Vec<StyledLine>,
+) {
+    for (i, styled_line) in styled_lines.iter().enumerate() {
+        let mut spans = Vec::new();
+
+        let name_text = if i == 0 {
+            format!("{:>width$}", name, width = NAME_WIDTH)
+        } else {
+            " ".repeat(NAME_WIDTH)
+        };
+
+        spans.push((
+            name_text,
+            LineStyle {
+                fg: Some(color),
+                bold: false,
+                dimmed: true,
+                italic: false,
+            },
+        ));
+
+        spans.push((
+            " │ ".to_string(),
+            LineStyle {
+                fg: Some(SEPARATOR_COLOR),
+                dimmed: true,
+                ..Default::default()
+            },
+        ));
+
+        for (text, mut style) in styled_line.spans.iter().cloned() {
+            style.dimmed = true;
+            spans.push((text, style));
+        }
+
+        lines.push(RenderedLine { spans });
+    }
+
+    if styled_lines.is_empty() {
+        let spans = vec![
+            (
+                format!("{:>width$}", name, width = NAME_WIDTH),
+                LineStyle {
+                    fg: Some(color),
+                    bold: false,
+                    dimmed: true,
+                    italic: false,
+                },
+            ),
+            (
+                " │ ".to_string(),
+                LineStyle {
+                    fg: Some(SEPARATOR_COLOR),
+                    dimmed: true,
+                    ..Default::default()
+                },
+            ),
+        ];
+        lines.push(RenderedLine { spans });
+    }
+}
+
+/// Render ledger block with plain text (dimmed for subagents)
+fn render_ledger_block_plain_dimmed(
+    lines: &mut Vec<RenderedLine>,
+    name: &str,
+    color: (u8, u8, u8),
+    text: &str,
+) {
+    for (i, line_text) in text.lines().enumerate() {
+        let mut spans = Vec::new();
+
+        let name_text = if i == 0 {
+            format!("{:>width$}", name, width = NAME_WIDTH)
+        } else {
+            " ".repeat(NAME_WIDTH)
+        };
+
+        spans.push((
+            name_text,
+            LineStyle {
+                fg: Some(color),
+                bold: false,
+                dimmed: true,
+                italic: false,
+            },
+        ));
+
+        spans.push((
+            " │ ".to_string(),
+            LineStyle {
+                fg: Some(SEPARATOR_COLOR),
+                dimmed: true,
+                ..Default::default()
+            },
+        ));
+
+        spans.push((
+            line_text.to_string(),
+            LineStyle {
+                dimmed: true,
+                ..Default::default()
+            },
+        ));
+
+        lines.push(RenderedLine { spans });
+    }
+}
+
+/// Render continuation lines (dimmed for subagents)
+fn render_continuation_dimmed(lines: &mut Vec<RenderedLine>, text: &str) {
+    for line_text in text.lines() {
+        let spans = vec![
+            (
+                " ".repeat(NAME_WIDTH),
+                LineStyle {
+                    dimmed: true,
+                    ..Default::default()
+                },
+            ),
+            (
+                " │ ".to_string(),
+                LineStyle {
+                    fg: Some(SEPARATOR_COLOR),
+                    dimmed: true,
+                    ..Default::default()
+                },
+            ),
+            (
+                line_text.to_string(),
+                LineStyle {
+                    dimmed: true,
+                    ..Default::default()
+                },
+            ),
+        ];
 
         lines.push(RenderedLine { spans });
     }
