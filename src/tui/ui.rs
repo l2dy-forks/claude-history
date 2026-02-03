@@ -77,6 +77,30 @@ fn render_status_message(frame: &mut Frame, msg: &str, area: Rect) {
     frame.render_widget(status, area);
 }
 
+/// Check if the header (with summary) fits on a single line given terminal width
+fn header_fits_single_line(conv: &crate::history::Conversation, terminal_width: u16) -> bool {
+    let summary = match &conv.summary {
+        Some(s) => s,
+        None => return true, // No summary means it's already single line
+    };
+
+    let project = conv.project_name.as_deref().unwrap_or("Unknown");
+    let msg_count_len = if conv.message_count == 1 {
+        "1 message".len()
+    } else {
+        format!("{} messages", conv.message_count).len()
+    };
+    // timestamp is "YYYY-MM-DD HH:MM" = 16 chars
+    let timestamp_len = 16;
+
+    // Format: "  [project] msg_count · timestamp · summary"
+    // Breakdown: 2 (indent) + 1 ([) + project + 1 (]) + 1 (space) + msg_count + 3 ( · ) + timestamp + 3 ( · ) + summary
+    let total_len =
+        2 + 1 + project.len() + 1 + 1 + msg_count_len + 3 + timestamp_len + 3 + summary.len();
+
+    total_len <= terminal_width as usize
+}
+
 /// Render the view mode (conversation viewer)
 fn render_view_mode(frame: &mut Frame, app: &App, state: &ViewState) {
     let area = frame.area();
@@ -94,7 +118,12 @@ fn render_view_mode(frame: &mut Frame, app: &App, state: &ViewState) {
         .iter()
         .find(|c| c.path == state.conversation_path);
     let has_summary = conv.is_some_and(|c| c.summary.is_some());
-    let header_height = if has_summary { 3 } else { 2 };
+    let fits_single_line = conv.is_some_and(|c| header_fits_single_line(c, area.width));
+    let header_height = if has_summary && !fits_single_line {
+        3
+    } else {
+        2
+    };
 
     // Layout: header (2-3 lines) | content | status bar
     let chunks = Layout::default()
@@ -131,7 +160,7 @@ fn render_view_header(frame: &mut Frame, app: &App, state: &ViewState, area: Rec
         .iter()
         .find(|c| c.path == state.conversation_path);
 
-    let (project, msg_count, timestamp, summary) = if let Some(conv) = conv {
+    let (project, msg_count, timestamp, summary, fits_single) = if let Some(conv) = conv {
         let project = conv.project_name.as_deref().unwrap_or("Unknown");
         let msg_count = if conv.message_count == 1 {
             "1 message".to_string()
@@ -139,11 +168,13 @@ fn render_view_header(frame: &mut Frame, app: &App, state: &ViewState, area: Rec
             format!("{} messages", conv.message_count)
         };
         let timestamp = conv.timestamp.format("%Y-%m-%d %H:%M").to_string();
+        let fits = header_fits_single_line(conv, area.width);
         (
             project.to_string(),
             msg_count,
             timestamp,
             conv.summary.clone(),
+            fits,
         )
     } else {
         // Fallback if parsing failed
@@ -153,32 +184,51 @@ fn render_view_header(frame: &mut Frame, app: &App, state: &ViewState, area: Rec
             .and_then(|s| s.to_str())
             .unwrap_or("Unknown")
             .to_string();
-        (project, "".to_string(), "".to_string(), None)
+        (project, "".to_string(), "".to_string(), None, true)
     };
 
     // Build header lines
-    let mut lines = vec![Line::from(vec![
-        Span::raw("  "),
-        Span::styled(
-            format!("[{}]", project),
-            Style::default().fg(Color::Rgb(78, 201, 176)).bold(),
-        ),
-        Span::raw(" "),
-        Span::styled(msg_count, Style::default().fg(Color::Rgb(140, 140, 140))),
-        Span::raw(" · "),
-        Span::styled(timestamp, Style::default().fg(Color::Rgb(140, 140, 140))),
-    ])];
-
-    // Add summary line if available
-    if let Some(ref summary_text) = summary {
-        lines.push(Line::from(vec![
+    let lines = if fits_single && summary.is_some() {
+        // Single line with summary
+        vec![Line::from(vec![
             Span::raw("  "),
             Span::styled(
-                summary_text.clone(),
+                format!("[{}]", project),
+                Style::default().fg(Color::Rgb(78, 201, 176)).bold(),
+            ),
+            Span::raw(" "),
+            Span::styled(msg_count, Style::default().fg(Color::Rgb(140, 140, 140))),
+            Span::raw(" · "),
+            Span::styled(timestamp, Style::default().fg(Color::Rgb(140, 140, 140))),
+            Span::raw(" · "),
+            Span::styled(
+                summary.unwrap(),
                 Style::default().fg(Color::Rgb(180, 180, 180)),
             ),
-        ]));
-    }
+        ])]
+    } else {
+        // Two lines (or single line without summary)
+        let mut lines = vec![Line::from(vec![
+            Span::raw("  "),
+            Span::styled(
+                format!("[{}]", project),
+                Style::default().fg(Color::Rgb(78, 201, 176)).bold(),
+            ),
+            Span::raw(" "),
+            Span::styled(msg_count, Style::default().fg(Color::Rgb(140, 140, 140))),
+            Span::raw(" · "),
+            Span::styled(timestamp, Style::default().fg(Color::Rgb(140, 140, 140))),
+        ])];
+
+        // Add summary on second line if available
+        if let Some(summary_text) = summary {
+            lines.push(Line::from(vec![
+                Span::raw("  "),
+                Span::styled(summary_text, Style::default().fg(Color::Rgb(180, 180, 180))),
+            ]));
+        }
+        lines
+    };
 
     let header = Paragraph::new(lines).block(
         Block::default()
