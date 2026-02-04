@@ -7,8 +7,10 @@
 //! - JSONL (raw format)
 //!
 //! Conversations can be exported to files or copied to the clipboard.
+//! Export respects the current display settings for thinking blocks and tool calls.
 
 use crate::claude::{ContentBlock, LogEntry, UserContent, UserMessage};
+use crate::tool_format;
 use arboard::Clipboard;
 use chrono::Local;
 use std::fs::{self, File};
@@ -51,13 +53,24 @@ pub struct ExportResult {
     pub message: String,
 }
 
+/// Options for export content generation
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ExportOptions {
+    pub show_tools: bool,
+    pub show_thinking: bool,
+}
+
 /// Export conversation to file
-pub fn export_to_file(source_path: &Path, format: ExportFormat) -> ExportResult {
+pub fn export_to_file(
+    source_path: &Path,
+    format: ExportFormat,
+    options: ExportOptions,
+) -> ExportResult {
     let timestamp = Local::now().format("%Y-%m-%d-%H%M%S");
     let ext = format.extension();
     let filename = format!("conversation-{}.{}", timestamp, ext);
 
-    let content = match generate_content(source_path, format) {
+    let content = match generate_content(source_path, format, options) {
         Ok(c) => c,
         Err(e) => {
             return ExportResult {
@@ -77,8 +90,12 @@ pub fn export_to_file(source_path: &Path, format: ExportFormat) -> ExportResult 
 }
 
 /// Copy conversation to clipboard
-pub fn export_to_clipboard(source_path: &Path, format: ExportFormat) -> ExportResult {
-    let content = match generate_content(source_path, format) {
+pub fn export_to_clipboard(
+    source_path: &Path,
+    format: ExportFormat,
+    options: ExportOptions,
+) -> ExportResult {
+    let content = match generate_content(source_path, format, options) {
         Ok(c) => c,
         Err(e) => {
             return ExportResult {
@@ -103,17 +120,21 @@ pub fn export_to_clipboard(source_path: &Path, format: ExportFormat) -> ExportRe
 }
 
 /// Generate content in the specified format
-fn generate_content(source_path: &Path, format: ExportFormat) -> std::io::Result<String> {
+fn generate_content(
+    source_path: &Path,
+    format: ExportFormat,
+    options: ExportOptions,
+) -> std::io::Result<String> {
     match format {
         ExportFormat::Jsonl => fs::read_to_string(source_path),
-        ExportFormat::Plain => generate_plain(source_path),
-        ExportFormat::Markdown => generate_markdown(source_path),
-        ExportFormat::Ledger => generate_ledger(source_path),
+        ExportFormat::Plain => generate_plain(source_path, options),
+        ExportFormat::Markdown => generate_markdown(source_path, options),
+        ExportFormat::Ledger => generate_ledger(source_path, options),
     }
 }
 
 /// Generate plain text format (simple "Speaker: message" lines)
-fn generate_plain(path: &Path) -> std::io::Result<String> {
+fn generate_plain(path: &Path, options: ExportOptions) -> std::io::Result<String> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
     let mut output = String::new();
@@ -129,11 +150,32 @@ fn generate_plain(path: &Path) -> std::io::Result<String> {
                     if let Some(text) = extract_user_text(&message) {
                         output.push_str(&format!("You: {}\n\n", text));
                     }
+                    // Tool results
+                    if options.show_tools
+                        && let UserContent::Blocks(blocks) = &message.content
+                    {
+                        for block in blocks {
+                            if let ContentBlock::ToolResult { content, .. } = block {
+                                let content_str = format_tool_result_for_export(content.as_ref());
+                                output.push_str(&format!("Tool Result: {}\n\n", content_str));
+                            }
+                        }
+                    }
                 }
                 LogEntry::Assistant { message, .. } => {
                     for block in &message.content {
-                        if let ContentBlock::Text { text } = block {
-                            output.push_str(&format!("Claude: {}\n\n", text));
+                        match block {
+                            ContentBlock::Text { text } => {
+                                output.push_str(&format!("Claude: {}\n\n", text));
+                            }
+                            ContentBlock::ToolUse { name, input, .. } if options.show_tools => {
+                                let formatted = format_tool_call_for_export(name, input);
+                                output.push_str(&format!("Tool: {}\n\n", formatted));
+                            }
+                            ContentBlock::Thinking { thinking, .. } if options.show_thinking => {
+                                output.push_str(&format!("Thinking: {}\n\n", thinking));
+                            }
+                            _ => {}
                         }
                     }
                 }
@@ -146,7 +188,7 @@ fn generate_plain(path: &Path) -> std::io::Result<String> {
 }
 
 /// Generate markdown format (with ## headers for speakers)
-fn generate_markdown(path: &Path) -> std::io::Result<String> {
+fn generate_markdown(path: &Path, options: ExportOptions) -> std::io::Result<String> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
     let mut output = String::new();
@@ -162,11 +204,34 @@ fn generate_markdown(path: &Path) -> std::io::Result<String> {
                     if let Some(text) = extract_user_text(&message) {
                         output.push_str(&format!("## You\n\n{}\n\n", text));
                     }
+                    // Tool results
+                    if options.show_tools
+                        && let UserContent::Blocks(blocks) = &message.content
+                    {
+                        for block in blocks {
+                            if let ContentBlock::ToolResult { content, .. } = block {
+                                let content_str = format_tool_result_for_export(content.as_ref());
+                                let fenced = markdown_code_fence(&content_str);
+                                output.push_str(&format!("### Tool Result\n\n{}\n\n", fenced));
+                            }
+                        }
+                    }
                 }
                 LogEntry::Assistant { message, .. } => {
                     for block in &message.content {
-                        if let ContentBlock::Text { text } = block {
-                            output.push_str(&format!("## Claude\n\n{}\n\n", text));
+                        match block {
+                            ContentBlock::Text { text } => {
+                                output.push_str(&format!("## Claude\n\n{}\n\n", text));
+                            }
+                            ContentBlock::ToolUse { name, input, .. } if options.show_tools => {
+                                let formatted = format_tool_call_for_export(name, input);
+                                let fenced = markdown_code_fence(&formatted);
+                                output.push_str(&format!("### Tool: {}\n\n{}\n\n", name, fenced));
+                            }
+                            ContentBlock::Thinking { thinking, .. } if options.show_thinking => {
+                                output.push_str(&format!("### Thinking\n\n{}\n\n", thinking));
+                            }
+                            _ => {}
                         }
                     }
                 }
@@ -179,7 +244,7 @@ fn generate_markdown(path: &Path) -> std::io::Result<String> {
 }
 
 /// Generate ledger-style format (formatted like the TUI viewer)
-fn generate_ledger(path: &Path) -> std::io::Result<String> {
+fn generate_ledger(path: &Path, options: ExportOptions) -> std::io::Result<String> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
     let mut output = String::new();
@@ -198,12 +263,41 @@ fn generate_ledger(path: &Path) -> std::io::Result<String> {
                         append_ledger_block(&mut output, "You", &text, NAME_WIDTH);
                         output.push('\n');
                     }
+                    // Tool results
+                    if options.show_tools
+                        && let UserContent::Blocks(blocks) = &message.content
+                    {
+                        for block in blocks {
+                            if let ContentBlock::ToolResult { content, .. } = block {
+                                let content_str = format_tool_result_for_export(content.as_ref());
+                                append_ledger_block(
+                                    &mut output,
+                                    "↳ Result",
+                                    &content_str,
+                                    NAME_WIDTH,
+                                );
+                                output.push('\n');
+                            }
+                        }
+                    }
                 }
                 LogEntry::Assistant { message, .. } => {
                     for block in &message.content {
-                        if let ContentBlock::Text { text } = block {
-                            append_ledger_block(&mut output, "Claude", text, NAME_WIDTH);
-                            output.push('\n');
+                        match block {
+                            ContentBlock::Text { text } => {
+                                append_ledger_block(&mut output, "Claude", text, NAME_WIDTH);
+                                output.push('\n');
+                            }
+                            ContentBlock::ToolUse { name, input, .. } if options.show_tools => {
+                                let formatted = format_tool_call_for_export(name, input);
+                                append_ledger_block(&mut output, "Tool", &formatted, NAME_WIDTH);
+                                output.push('\n');
+                            }
+                            ContentBlock::Thinking { thinking, .. } if options.show_thinking => {
+                                append_ledger_block(&mut output, "Thinking", thinking, NAME_WIDTH);
+                                output.push('\n');
+                            }
+                            _ => {}
                         }
                     }
                 }
@@ -289,4 +383,49 @@ fn process_command_text(text: &str) -> Option<String> {
     }
 
     Some(text.to_string())
+}
+
+/// Wrap content in markdown code fence, handling nested backticks
+fn markdown_code_fence(content: &str) -> String {
+    // Find the longest run of backticks in content and use one more
+    let max_backticks = content
+        .split(|c| c != '`')
+        .map(|s| s.len())
+        .max()
+        .unwrap_or(0);
+    let fence_len = std::cmp::max(3, max_backticks + 1);
+    let fence: String = std::iter::repeat_n('`', fence_len).collect();
+    format!("{}\n{}\n{}", fence, content, fence)
+}
+
+/// Format a tool call for export
+fn format_tool_call_for_export(name: &str, input: &serde_json::Value) -> String {
+    let formatted = tool_format::format_tool_call(name, input);
+    match formatted.body {
+        Some(body) => format!("{}\n{}", formatted.header, body),
+        None => formatted.header,
+    }
+}
+
+/// Format tool result content for export
+fn format_tool_result_for_export(content: Option<&serde_json::Value>) -> String {
+    match content {
+        Some(serde_json::Value::String(s)) => s.clone(),
+        Some(serde_json::Value::Array(arr)) => {
+            // Handle array of content blocks
+            let texts: Vec<&str> = arr
+                .iter()
+                .filter_map(|item| item.get("text").and_then(|t| t.as_str()))
+                .collect();
+            if !texts.is_empty() {
+                texts.join("\n\n")
+            } else {
+                serde_json::to_string_pretty(&arr).unwrap_or_else(|_| "<error>".to_string())
+            }
+        }
+        Some(value) => {
+            serde_json::to_string_pretty(value).unwrap_or_else(|_| "<error>".to_string())
+        }
+        None => "<no content>".to_string(),
+    }
 }

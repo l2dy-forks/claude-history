@@ -634,9 +634,15 @@ impl App {
 
     /// Perform export or yank operation
     fn perform_export(&mut self, option: usize, to_clipboard: bool) {
-        let path = match self.get_view_conversation_path() {
-            Some(p) => p,
-            None => return,
+        let (path, options) = match &self.app_mode {
+            AppMode::View(state) => (
+                state.conversation_path.clone(),
+                crate::tui::export::ExportOptions {
+                    show_tools: state.show_tools,
+                    show_thinking: state.show_thinking,
+                },
+            ),
+            _ => return,
         };
 
         let format = match crate::tui::export::ExportFormat::from_index(option) {
@@ -645,21 +651,12 @@ impl App {
         };
 
         let result = if to_clipboard {
-            crate::tui::export::export_to_clipboard(&path, format)
+            crate::tui::export::export_to_clipboard(&path, format, options)
         } else {
-            crate::tui::export::export_to_file(&path, format)
+            crate::tui::export::export_to_file(&path, format, options)
         };
 
         self.status_message = Some((result.message, std::time::Instant::now()));
-    }
-
-    /// Get the path of the currently viewed conversation
-    fn get_view_conversation_path(&self) -> Option<PathBuf> {
-        if let AppMode::View(ref state) = self.app_mode {
-            Some(state.conversation_path.clone())
-        } else {
-            None
-        }
     }
 
     /// Handle a key event, returns Some(Action) if the app should exit
