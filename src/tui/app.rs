@@ -897,6 +897,9 @@ impl App {
                 }
             }
 
+            // Ctrl+C - quit the app
+            KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => Some(Action::Quit),
+
             _ => None,
         }
     }

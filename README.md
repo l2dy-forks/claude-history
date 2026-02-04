@@ -84,6 +84,7 @@ preview.
 | `Ctrl+R`                | Resume conversation                                 |
 | `Ctrl+X`                | Delete conversation                                 |
 | `q` / `Esc`             | Return to list (or quit in direct file input mode) |
+| `Ctrl+C`                | Quit                                                |
 
 ### Search
 
