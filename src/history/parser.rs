@@ -4,11 +4,12 @@
 //! conversation metadata like preview text, message counts, and working directory.
 
 use super::{Conversation, ParseError};
-use crate::claude::{LogEntry, extract_text_from_assistant, extract_text_from_user};
+use crate::claude::{LogEntry, TokenUsage, extract_text_from_assistant, extract_text_from_user};
 use crate::cli::DebugLevel;
 use crate::debug;
 use crate::error::Result;
 use chrono::{DateTime, Local};
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
@@ -51,6 +52,10 @@ pub(crate) fn process_conversation_reader<R: BufRead>(
     let mut message_count: usize = 0;
     let mut parse_errors: Vec<ParseError> = Vec::new();
     let mut extracted_summary: Option<String> = None;
+    let mut extracted_model: Option<String> = None;
+    // Track token usage per message ID to avoid double-counting streaming entries
+    let mut token_usage_by_msg: HashMap<String, TokenUsage> = HashMap::new();
+    let mut anonymous_token_count: u64 = 0;
 
     for (line_idx, line) in lines.iter().enumerate() {
         if line.trim().is_empty() {
@@ -93,6 +98,26 @@ pub(crate) fn process_conversation_reader<R: BufRead>(
                         }
                     }
                     LogEntry::Assistant { message, .. } => {
+                        // Extract model name from first assistant message that has it
+                        if extracted_model.is_none()
+                            && let Some(model) = &message.model
+                        {
+                            extracted_model = Some(model.clone());
+                        }
+
+                        // Track token usage by message ID to avoid double-counting
+                        // Multiple JSONL entries can exist for the same message (streaming)
+                        if let Some(usage) = &message.usage {
+                            if let Some(msg_id) = &message.id {
+                                // Store/update usage for this message ID (last one wins)
+                                token_usage_by_msg.insert(msg_id.clone(), usage.clone());
+                            } else {
+                                // No message ID - accumulate directly (legacy format)
+                                // Only count input + output, not cache tokens
+                                anonymous_token_count += usage.input_tokens + usage.output_tokens;
+                            }
+                        }
+
                         let text = extract_text_from_assistant(&message);
                         if !text.is_empty() {
                             all_parts.push(text.clone());
@@ -200,6 +225,13 @@ pub(crate) fn process_conversation_reader<R: BufRead>(
     let preview = normalize_whitespace(&preview);
     let full_text = normalize_whitespace(&full_text);
 
+    // Sum token usage from deduplicated messages (input + output only, not cache)
+    let total_tokens: u64 = token_usage_by_msg
+        .values()
+        .map(|u| u.input_tokens + u.output_tokens)
+        .sum::<u64>()
+        + anonymous_token_count;
+
     Ok(Some(Conversation {
         path,
         index: 0,
@@ -212,6 +244,8 @@ pub(crate) fn process_conversation_reader<R: BufRead>(
         message_count,
         parse_errors,
         summary: extracted_summary,
+        model: extracted_model,
+        total_tokens,
     }))
 }
 
@@ -298,6 +332,21 @@ mod tests {
         format!(
             r#"{{"type": "assistant", "timestamp": "2024-01-01T00:00:00Z", "message": {{"role": "assistant", "content": [{{"type": "text", "text": "{}"}}]}}}}"#,
             text
+        )
+    }
+
+    /// Helper to create an assistant message with model and usage
+    fn assistant_msg_with_usage(
+        text: &str,
+        model: &str,
+        input: u64,
+        output: u64,
+        cache_creation: u64,
+        cache_read: u64,
+    ) -> String {
+        format!(
+            r#"{{"type": "assistant", "timestamp": "2024-01-01T00:00:00Z", "message": {{"role": "assistant", "model": "{}", "usage": {{"input_tokens": {}, "output_tokens": {}, "cache_creation_input_tokens": {}, "cache_read_input_tokens": {}}}, "content": [{{"type": "text", "text": "{}"}}]}}}}"#,
+            model, input, output, cache_creation, cache_read, text
         )
     }
 
@@ -679,5 +728,68 @@ mod tests {
             Some("First summary".to_string()),
             "Should keep first summary encountered"
         );
+    }
+
+    // === Model and token extraction ===
+
+    #[test]
+    fn extracts_model_from_assistant_message() {
+        let content = [
+            user_msg("Hello", None),
+            assistant_msg_with_usage("Hi there", "claude-opus-4-5-20251101", 100, 50, 0, 0),
+        ]
+        .join("\n");
+
+        let conv = parse_jsonl(&content).unwrap().unwrap();
+        assert_eq!(
+            conv.model,
+            Some("claude-opus-4-5-20251101".to_string()),
+            "Should extract model from assistant message"
+        );
+    }
+
+    #[test]
+    fn accumulates_tokens_across_messages() {
+        let content = [
+            user_msg("Hello", None),
+            assistant_msg_with_usage("Hi", "claude-opus-4-5-20251101", 100, 50, 10, 5),
+            user_msg("How are you?", None),
+            assistant_msg_with_usage("Good!", "claude-opus-4-5-20251101", 200, 100, 20, 10),
+        ]
+        .join("\n");
+
+        let conv = parse_jsonl(&content).unwrap().unwrap();
+        // Total = (100+50) + (200+100) = 450 (only input + output, not cache)
+        assert_eq!(
+            conv.total_tokens, 450,
+            "Should accumulate input+output tokens from all assistant messages"
+        );
+    }
+
+    #[test]
+    fn takes_first_model_if_multiple() {
+        let content = [
+            user_msg("Hello", None),
+            assistant_msg_with_usage("Hi", "claude-opus-4-5-20251101", 100, 50, 0, 0),
+            user_msg("Follow up", None),
+            assistant_msg_with_usage("Response", "claude-sonnet-4-20250514", 200, 100, 0, 0),
+        ]
+        .join("\n");
+
+        let conv = parse_jsonl(&content).unwrap().unwrap();
+        assert_eq!(
+            conv.model,
+            Some("claude-opus-4-5-20251101".to_string()),
+            "Should keep first model encountered"
+        );
+    }
+
+    #[test]
+    fn handles_missing_model_and_usage() {
+        let content = [user_msg("Hello", None), assistant_msg("Hi there")].join("\n");
+
+        let conv = parse_jsonl(&content).unwrap().unwrap();
+        assert!(conv.model.is_none(), "Should have no model");
+        assert_eq!(conv.total_tokens, 0, "Should have zero tokens");
     }
 }

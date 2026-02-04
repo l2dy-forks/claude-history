@@ -14,6 +14,81 @@ const LINES_PER_ITEM: usize = 3;
 /// Duration before status messages auto-clear
 const STATUS_TTL: std::time::Duration = std::time::Duration::from_secs(3);
 
+/// Format model name for display (e.g., "claude-opus-4-5-20251101" → "opus-4.5")
+fn format_model_name(model: &str) -> String {
+    // Handle claude-opus-4-5-YYYYMMDD format
+    if let Some(rest) = model.strip_prefix("claude-opus-4-5-")
+        && rest.chars().all(|c| c.is_ascii_digit())
+    {
+        return "opus-4.5".to_string();
+    }
+
+    // Handle claude-sonnet-4-YYYYMMDD format
+    if let Some(rest) = model.strip_prefix("claude-sonnet-4-")
+        && rest.chars().all(|c| c.is_ascii_digit())
+    {
+        return "sonnet-4".to_string();
+    }
+
+    // Handle claude-3-5-sonnet-YYYYMMDD format
+    if let Some(rest) = model.strip_prefix("claude-3-5-sonnet-")
+        && rest.chars().all(|c| c.is_ascii_digit())
+    {
+        return "sonnet-3.5".to_string();
+    }
+
+    // Handle claude-3-5-haiku-YYYYMMDD format
+    if let Some(rest) = model.strip_prefix("claude-3-5-haiku-")
+        && rest.chars().all(|c| c.is_ascii_digit())
+    {
+        return "haiku-3.5".to_string();
+    }
+
+    // Handle claude-3-opus-YYYYMMDD format
+    if let Some(rest) = model.strip_prefix("claude-3-opus-")
+        && rest.chars().all(|c| c.is_ascii_digit())
+    {
+        return "opus-3".to_string();
+    }
+
+    // Handle claude-3-sonnet-YYYYMMDD format
+    if let Some(rest) = model.strip_prefix("claude-3-sonnet-")
+        && rest.chars().all(|c| c.is_ascii_digit())
+    {
+        return "sonnet-3".to_string();
+    }
+
+    // Handle claude-3-haiku-YYYYMMDD format
+    if let Some(rest) = model.strip_prefix("claude-3-haiku-")
+        && rest.chars().all(|c| c.is_ascii_digit())
+    {
+        return "haiku-3".to_string();
+    }
+
+    // Unknown format - truncate if too long
+    if model.len() > 20 {
+        format!("{}…", &model[..19])
+    } else {
+        model.to_string()
+    }
+}
+
+/// Format token count with K/M suffix (short form, e.g., "926k")
+fn format_tokens(tokens: u64) -> String {
+    if tokens >= 1_000_000 {
+        format!("{:.1}M", tokens as f64 / 1_000_000.0)
+    } else if tokens >= 1_000 {
+        format!("{}k", tokens / 1_000)
+    } else {
+        tokens.to_string()
+    }
+}
+
+/// Format token count with K/M suffix and "tokens" label (long form, e.g., "926k tokens")
+fn format_tokens_long(tokens: u64) -> String {
+    format!("{} tokens", format_tokens(tokens))
+}
+
 /// Render the TUI
 pub fn render(frame: &mut Frame, app: &App) {
     match app.app_mode() {
@@ -126,17 +201,41 @@ fn header_fits_single_line(conv: &crate::history::Conversation, terminal_width: 
     };
 
     let project = conv.project_name.as_deref().unwrap_or("Unknown");
+
+    // Calculate model length if present
+    let model_len = conv
+        .model
+        .as_ref()
+        .map(|m| format_model_name(m).len() + 3) // + " · "
+        .unwrap_or(0);
+
     let msg_count_len = if conv.message_count == 1 {
         "1 message".len()
     } else {
         format!("{} messages", conv.message_count).len()
     };
+
+    // Calculate tokens length if present (use long form for single-line check)
+    let tokens_len = if conv.total_tokens > 0 {
+        format_tokens_long(conv.total_tokens).len() + 3 // + " · "
+    } else {
+        0
+    };
+
     // timestamp is "YYYY-MM-DD HH:MM" = 16 chars
     let timestamp_len = 16;
 
-    // Format: "  project · msg_count · timestamp · summary"
-    // Breakdown: 2 (indent) + project + 3 ( · ) + msg_count + 3 ( · ) + timestamp + 3 ( · ) + summary
-    let total_len = 2 + project.len() + 3 + msg_count_len + 3 + timestamp_len + 3 + summary.len();
+    // Format: "  project · model · msg_count · tokens · timestamp · summary"
+    let total_len = 2
+        + project.len()
+        + 3
+        + model_len
+        + msg_count_len
+        + 3
+        + tokens_len
+        + timestamp_len
+        + 3
+        + summary.len();
 
     total_len <= terminal_width as usize
 }
@@ -201,65 +300,122 @@ fn render_view_header(frame: &mut Frame, app: &App, state: &ViewState, area: Rec
         .iter()
         .find(|c| c.path == state.conversation_path);
 
-    let (project, msg_count, timestamp, summary, fits_single) = if let Some(conv) = conv {
-        let project = conv.project_name.as_deref().unwrap_or("Unknown");
-        let msg_count = if conv.message_count == 1 {
-            "1 message".to_string()
+    let (project, model, msg_count, tokens, timestamp, summary, fits_single) =
+        if let Some(conv) = conv {
+            let project = conv.project_name.as_deref().unwrap_or("Unknown");
+            let model = conv.model.as_ref().map(|m| format_model_name(m));
+            let msg_count = if conv.message_count == 1 {
+                "1 message".to_string()
+            } else {
+                format!("{} messages", conv.message_count)
+            };
+
+            // Calculate header length to determine if long token format fits
+            let model_len = model.as_ref().map(|m| m.len() + 3).unwrap_or(0); // + " · "
+            let base_len = 2 + project.len() + 3 + model_len + msg_count.len() + 3 + 16; // 16 = timestamp
+
+            let tokens = if conv.total_tokens > 0 {
+                let long_form = format_tokens_long(conv.total_tokens);
+                let short_form = format_tokens(conv.total_tokens);
+                // Use long form if it fits (base + " · " + tokens <= width)
+                if base_len + 3 + long_form.len() <= area.width as usize {
+                    Some(long_form)
+                } else {
+                    Some(short_form)
+                }
+            } else {
+                None
+            };
+
+            let timestamp = conv.timestamp.format("%Y-%m-%d %H:%M").to_string();
+            let fits = header_fits_single_line(conv, area.width);
+            (
+                project.to_string(),
+                model,
+                msg_count,
+                tokens,
+                timestamp,
+                conv.summary.clone(),
+                fits,
+            )
         } else {
-            format!("{} messages", conv.message_count)
+            // Fallback if parsing failed
+            let project = state
+                .conversation_path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("Unknown")
+                .to_string();
+            (
+                project,
+                None,
+                "".to_string(),
+                None,
+                "".to_string(),
+                None,
+                true,
+            )
         };
-        let timestamp = conv.timestamp.format("%Y-%m-%d %H:%M").to_string();
-        let fits = header_fits_single_line(conv, area.width);
-        (
-            project.to_string(),
-            msg_count,
-            timestamp,
-            conv.summary.clone(),
-            fits,
-        )
-    } else {
-        // Fallback if parsing failed
-        let project = state
-            .conversation_path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("Unknown")
-            .to_string();
-        (project, "".to_string(), "".to_string(), None, true)
+
+    // Build header spans for metadata line
+    let build_metadata_spans = |include_summary: bool| {
+        let mut spans = vec![
+            Span::raw("  "),
+            Span::styled(
+                project.clone(),
+                Style::default().fg(Color::Rgb(78, 201, 176)).bold(),
+            ),
+        ];
+
+        // Add model if present
+        if let Some(ref m) = model {
+            spans.push(Span::raw(" · "));
+            spans.push(Span::styled(
+                m.clone(),
+                Style::default().fg(Color::Rgb(180, 140, 200)),
+            ));
+        }
+
+        spans.push(Span::raw(" · "));
+        spans.push(Span::styled(
+            msg_count.clone(),
+            Style::default().fg(Color::Rgb(140, 140, 140)),
+        ));
+
+        // Add tokens if present
+        if let Some(ref t) = tokens {
+            spans.push(Span::raw(" · "));
+            spans.push(Span::styled(
+                t.clone(),
+                Style::default().fg(Color::Rgb(140, 140, 140)),
+            ));
+        }
+
+        spans.push(Span::raw(" · "));
+        spans.push(Span::styled(
+            timestamp.clone(),
+            Style::default().fg(Color::Rgb(140, 140, 140)),
+        ));
+
+        // Add summary if requested
+        if include_summary && let Some(ref s) = summary {
+            spans.push(Span::raw(" · "));
+            spans.push(Span::styled(
+                s.clone(),
+                Style::default().fg(Color::Rgb(180, 180, 180)),
+            ));
+        }
+
+        spans
     };
 
     // Build header lines
     let lines = if fits_single && summary.is_some() {
         // Single line with summary
-        vec![Line::from(vec![
-            Span::raw("  "),
-            Span::styled(
-                project.clone(),
-                Style::default().fg(Color::Rgb(78, 201, 176)).bold(),
-            ),
-            Span::raw(" · "),
-            Span::styled(msg_count, Style::default().fg(Color::Rgb(140, 140, 140))),
-            Span::raw(" · "),
-            Span::styled(timestamp, Style::default().fg(Color::Rgb(140, 140, 140))),
-            Span::raw(" · "),
-            Span::styled(
-                summary.unwrap(),
-                Style::default().fg(Color::Rgb(180, 180, 180)),
-            ),
-        ])]
+        vec![Line::from(build_metadata_spans(true))]
     } else {
         // Two lines (or single line without summary)
-        let mut lines = vec![Line::from(vec![
-            Span::raw("  "),
-            Span::styled(
-                project.clone(),
-                Style::default().fg(Color::Rgb(78, 201, 176)).bold(),
-            ),
-            Span::raw(" · "),
-            Span::styled(msg_count, Style::default().fg(Color::Rgb(140, 140, 140))),
-            Span::raw(" · "),
-            Span::styled(timestamp, Style::default().fg(Color::Rgb(140, 140, 140))),
-        ])];
+        let mut lines = vec![Line::from(build_metadata_spans(false))];
 
         // Add summary on second line if available
         if let Some(summary_text) = summary {
@@ -1260,4 +1416,80 @@ fn extract_match_context(
     };
 
     format!("{}{}{}", prefix, sanitized, suffix)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_format_model_name_opus_45() {
+        assert_eq!(format_model_name("claude-opus-4-5-20251101"), "opus-4.5");
+    }
+
+    #[test]
+    fn test_format_model_name_sonnet_4() {
+        assert_eq!(format_model_name("claude-sonnet-4-20250514"), "sonnet-4");
+    }
+
+    #[test]
+    fn test_format_model_name_sonnet_35() {
+        assert_eq!(
+            format_model_name("claude-3-5-sonnet-20241022"),
+            "sonnet-3.5"
+        );
+    }
+
+    #[test]
+    fn test_format_model_name_haiku_35() {
+        assert_eq!(format_model_name("claude-3-5-haiku-20241022"), "haiku-3.5");
+    }
+
+    #[test]
+    fn test_format_model_name_opus_3() {
+        assert_eq!(format_model_name("claude-3-opus-20240229"), "opus-3");
+    }
+
+    #[test]
+    fn test_format_model_name_unknown() {
+        assert_eq!(format_model_name("custom-model"), "custom-model");
+    }
+
+    #[test]
+    fn test_format_model_name_truncates_long() {
+        let long_name = "very-long-unknown-model-name-that-exceeds-limit";
+        let formatted = format_model_name(long_name);
+        // 19 chars + ellipsis (3 bytes in UTF-8)
+        assert!(formatted.chars().count() <= 20);
+        assert!(formatted.ends_with('…'));
+    }
+
+    #[test]
+    fn test_format_tokens_small() {
+        assert_eq!(format_tokens(500), "500");
+        assert_eq!(format_tokens(0), "0");
+        assert_eq!(format_tokens(999), "999");
+    }
+
+    #[test]
+    fn test_format_tokens_thousands() {
+        assert_eq!(format_tokens(1000), "1k");
+        assert_eq!(format_tokens(417000), "417k");
+        assert_eq!(format_tokens(999999), "999k");
+    }
+
+    #[test]
+    fn test_format_tokens_millions() {
+        assert_eq!(format_tokens(1_000_000), "1.0M");
+        assert_eq!(format_tokens(1_500_000), "1.5M");
+        assert_eq!(format_tokens(12_345_678), "12.3M");
+    }
+
+    #[test]
+    fn test_format_tokens_long() {
+        assert_eq!(format_tokens_long(500), "500 tokens");
+        assert_eq!(format_tokens_long(1000), "1k tokens");
+        assert_eq!(format_tokens_long(926000), "926k tokens");
+        assert_eq!(format_tokens_long(1_500_000), "1.5M tokens");
+    }
 }

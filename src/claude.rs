@@ -62,6 +62,25 @@ pub struct AssistantMessage {
     #[allow(dead_code)]
     pub role: String,
     pub content: Vec<ContentBlock>,
+    pub model: Option<String>,
+    pub usage: Option<TokenUsage>,
+    /// Unique message ID to deduplicate streaming entries
+    pub id: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Clone, Default)]
+pub struct TokenUsage {
+    #[serde(default)]
+    pub input_tokens: u64,
+    #[serde(default)]
+    pub output_tokens: u64,
+    // Cache fields kept for deserialization but not used in totals
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub cache_creation_input_tokens: u64,
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub cache_read_input_tokens: u64,
 }
 
 #[derive(Debug, Deserialize)]

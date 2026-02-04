@@ -165,6 +165,8 @@ mod tests {
             message_count: 1,
             parse_errors: vec![],
             summary: None,
+            model: None,
+            total_tokens: 0,
         }
     }
 

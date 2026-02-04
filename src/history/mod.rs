@@ -54,6 +54,10 @@ pub struct Conversation {
     pub parse_errors: Vec<ParseError>,
     /// Summary/title of the conversation (from type=summary JSONL entry)
     pub summary: Option<String>,
+    /// Model name from assistant messages (e.g., "claude-opus-4-5-20251101")
+    pub model: Option<String>,
+    /// Total tokens used in the conversation (input + output + cache)
+    pub total_tokens: u64,
 }
 
 pub struct Project {
