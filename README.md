@@ -61,6 +61,7 @@ preview.
 | `Ctrl+W`                | Delete word before cursor       |
 | `Ctrl+R`                | Resume conversation             |
 | `Ctrl+X`                | Delete conversation             |
+| `?`                     | Show keyboard shortcuts         |
 | `Esc` / `Ctrl+C`        | Quit                            |
 
 ### Keyboard navigation (Viewer mode)
@@ -83,6 +84,7 @@ preview.
 | `p`                     | Show file path                                      |
 | `Ctrl+R`                | Resume conversation                                 |
 | `Ctrl+X`                | Delete conversation                                 |
+| `?`                     | Show keyboard shortcuts                             |
 | `q` / `Esc`             | Return to list (or quit in direct file input mode) |
 | `Ctrl+C`                | Quit                                                |
 

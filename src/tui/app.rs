@@ -33,6 +33,8 @@ pub enum DialogMode {
     ExportMenu { selected: usize },
     /// Yank menu (copy to clipboard)
     YankMenu { selected: usize },
+    /// Help overlay showing keyboard shortcuts
+    Help,
 }
 
 /// Export format options for menus
@@ -456,6 +458,10 @@ impl App {
         self.cursor_pos
     }
 
+    pub fn is_single_file_mode(&self) -> bool {
+        self.single_file_mode
+    }
+
     /// Move cursor left by one character
     fn cursor_left(&mut self) {
         if self.cursor_pos > 0 {
@@ -632,6 +638,17 @@ impl App {
         }
     }
 
+    /// Handle a key event during help overlay mode
+    fn handle_help_key(&mut self, code: KeyCode) -> Option<Action> {
+        match code {
+            KeyCode::Char('?') | KeyCode::Char('q') | KeyCode::Esc => {
+                self.dialog_mode = DialogMode::None;
+                None
+            }
+            _ => None,
+        }
+    }
+
     /// Perform export or yank operation
     fn perform_export(&mut self, option: usize, to_clipboard: bool) {
         let (path, options) = match &self.app_mode {
@@ -673,6 +690,7 @@ impl App {
             DialogMode::ExportMenu { .. } | DialogMode::YankMenu { .. } => {
                 return self.handle_menu_key(code);
             }
+            DialogMode::Help => return self.handle_help_key(code),
             DialogMode::None => {}
         }
 
@@ -866,6 +884,12 @@ impl App {
                 None
             }
 
+            // Open help overlay
+            KeyCode::Char('?') => {
+                self.dialog_mode = DialogMode::Help;
+                None
+            }
+
             // Ctrl+D - half page down (vim-style, same as 'd')
             KeyCode::Char('d') if modifiers.contains(KeyModifiers::CONTROL) => {
                 let half_page = viewport_height / 2;
@@ -995,6 +1019,11 @@ impl App {
                     }
                     None
                 }
+                // Open help overlay
+                KeyCode::Char('?') => {
+                    self.dialog_mode = DialogMode::Help;
+                    None
+                }
                 // Allow typing during loading - query is buffered for when loading finishes
                 KeyCode::Char(c) => {
                     // Insert at cursor position
@@ -1111,6 +1140,11 @@ impl App {
                 if self.delete_word_backwards() {
                     self.update_filter();
                 }
+                None
+            }
+            // Open help overlay
+            KeyCode::Char('?') => {
+                self.dialog_mode = DialogMode::Help;
                 None
             }
             KeyCode::Char(c) => {

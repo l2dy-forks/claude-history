@@ -66,6 +66,11 @@ fn render_list_mode(frame: &mut Frame, app: &App) {
             render_status_message(frame, msg, area);
         }
     }
+
+    // Render help overlay on top of everything if active
+    if *app.dialog_mode() == DialogMode::Help {
+        render_help_overlay(frame, false, false);
+    }
 }
 
 fn render_status_message(frame: &mut Frame, msg: &str, area: Rect) {
@@ -149,6 +154,7 @@ fn render_view_mode(frame: &mut Frame, app: &App, state: &ViewState) {
         DialogMode::ConfirmDelete => render_confirm_dialog(frame, chunks[2]),
         DialogMode::ExportMenu { selected } => render_export_menu(frame, *selected, false),
         DialogMode::YankMenu { selected } => render_export_menu(frame, *selected, true),
+        DialogMode::Help => render_help_overlay(frame, true, app.is_single_file_mode()),
         DialogMode::None => {}
     }
 }
@@ -324,6 +330,8 @@ fn render_view_status_bar(frame: &mut Frame, app: &App, state: &ViewState, area:
         ]);
     } else {
         spans.extend([
+            Span::styled("?", key_style),
+            Span::styled("help  ", label_style),
             Span::styled("/", key_style),
             Span::styled("search  ", label_style),
             Span::styled("e", key_style),
@@ -573,6 +581,119 @@ fn render_export_menu(frame: &mut Frame, selected: usize, is_yank: bool) {
 
     let menu_content = Paragraph::new(lines);
     frame.render_widget(menu_content, inner);
+}
+
+fn render_help_overlay(frame: &mut Frame, is_view_mode: bool, is_single_file_mode: bool) {
+    let exit_text = if is_single_file_mode {
+        "Quit"
+    } else {
+        "Back to list"
+    };
+
+    let shortcuts: Vec<(&str, &str)> = if is_view_mode {
+        vec![
+            ("j / ↓", "Scroll down"),
+            ("k / ↑", "Scroll up"),
+            ("d / Ctrl+D", "Half page down"),
+            ("u / Ctrl+U", "Half page up"),
+            ("g / Home", "Jump to top"),
+            ("G / End", "Jump to bottom"),
+            ("/", "Search"),
+            ("n / N", "Next / prev match"),
+            ("t", "Toggle tool calls"),
+            ("T", "Toggle thinking"),
+            ("e", "Export to file"),
+            ("y", "Copy to clipboard"),
+            ("p", "Show file path"),
+            ("Y", "Copy path"),
+            ("Ctrl+R", "Resume"),
+            ("Ctrl+X", "Delete"),
+            ("q / Esc", exit_text),
+        ]
+    } else {
+        vec![
+            ("↑ / ↓", "Move selection"),
+            ("← / →", "Move cursor"),
+            ("Ctrl+P / N", "Move selection"),
+            ("Ctrl+D / U", "Half page down/up"),
+            ("PgUp / PgDn", "Jump by page"),
+            ("Home / End", "Jump to first/last"),
+            ("Enter", "Open viewer"),
+            ("Ctrl+O", "Select and exit"),
+            ("Ctrl+W", "Delete word"),
+            ("Ctrl+R", "Resume"),
+            ("Ctrl+X", "Delete"),
+            ("Esc", "Quit"),
+        ]
+    };
+
+    let title = if is_view_mode {
+        " Viewer Shortcuts "
+    } else {
+        " List Shortcuts "
+    };
+
+    let area = frame.area();
+    // Calculate dimensions based on content (use chars().count() for Unicode)
+    let max_key_len = shortcuts
+        .iter()
+        .map(|(k, _)| k.chars().count())
+        .max()
+        .unwrap_or(0);
+    let max_action_len = shortcuts
+        .iter()
+        .map(|(_, a)| a.chars().count())
+        .max()
+        .unwrap_or(0);
+    let menu_width = (max_key_len + max_action_len + 7) as u16; // key + " │ " + action + padding
+    let menu_height = shortcuts.len() as u16 + 4; // shortcuts + title + border + close hint
+
+    // Center the menu
+    let menu_area = Rect {
+        x: (area.width.saturating_sub(menu_width)) / 2,
+        y: (area.height.saturating_sub(menu_height)) / 2,
+        width: menu_width,
+        height: menu_height,
+    };
+
+    // Clear the area behind the modal
+    frame.render_widget(Clear, menu_area);
+
+    // Render background
+    let background = Block::default().style(Style::default().bg(Color::Rgb(25, 25, 30)));
+    frame.render_widget(background, menu_area);
+
+    // Render border
+    let block = Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(Color::Rgb(78, 201, 176)));
+
+    let inner = block.inner(menu_area);
+    frame.render_widget(block, menu_area);
+
+    // Build shortcut lines
+    let mut lines = Vec::new();
+    for (key, action) in &shortcuts {
+        let key_padding = max_key_len - key.chars().count();
+        lines.push(Line::from(vec![
+            Span::styled(
+                format!("{}{}", key, " ".repeat(key_padding)),
+                Style::default().fg(Color::Rgb(78, 201, 176)),
+            ),
+            Span::styled(" │ ", Style::default().fg(Color::Rgb(60, 60, 60))),
+            Span::styled(*action, Style::default().fg(Color::White)),
+        ]));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::styled(
+        "Press ? or Esc to close",
+        Style::default().fg(Color::Rgb(100, 100, 100)),
+    ));
+
+    let content = Paragraph::new(lines);
+    frame.render_widget(content, inner);
 }
 
 fn render_list(frame: &mut Frame, app: &App, area: Rect) {
