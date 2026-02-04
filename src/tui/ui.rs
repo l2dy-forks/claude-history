@@ -645,8 +645,10 @@ fn render_help_overlay(frame: &mut Frame, is_view_mode: bool, is_single_file_mod
         .map(|(_, a)| a.chars().count())
         .max()
         .unwrap_or(0);
-    let menu_width = (max_key_len + max_action_len + 7) as u16; // key + " │ " + action + padding
-    let menu_height = shortcuts.len() as u16 + 4; // shortcuts + title + border + close hint
+    // Padding: 2 chars left + key + " │ " (3) + action + 2 chars right
+    let menu_width = (max_key_len + max_action_len + 11) as u16;
+    // Height: 1 top padding + shortcuts + 1 empty + close hint + 1 bottom padding + 2 border
+    let menu_height = shortcuts.len() as u16 + 6;
 
     // Center the menu
     let menu_area = Rect {
@@ -673,11 +675,13 @@ fn render_help_overlay(frame: &mut Frame, is_view_mode: bool, is_single_file_mod
     let inner = block.inner(menu_area);
     frame.render_widget(block, menu_area);
 
-    // Build shortcut lines
+    // Build shortcut lines with padding
     let mut lines = Vec::new();
+    lines.push(Line::from("")); // Top padding
     for (key, action) in &shortcuts {
         let key_padding = max_key_len - key.chars().count();
         lines.push(Line::from(vec![
+            Span::raw("  "), // Left padding
             Span::styled(
                 format!("{}{}", key, " ".repeat(key_padding)),
                 Style::default().fg(Color::Rgb(78, 201, 176)),
@@ -687,10 +691,13 @@ fn render_help_overlay(frame: &mut Frame, is_view_mode: bool, is_single_file_mod
         ]));
     }
     lines.push(Line::from(""));
-    lines.push(Line::styled(
-        "Press ? or Esc to close",
-        Style::default().fg(Color::Rgb(100, 100, 100)),
-    ));
+    lines.push(Line::from(vec![
+        Span::raw("  "), // Left padding
+        Span::styled(
+            "Press ? or Esc to close",
+            Style::default().fg(Color::Rgb(100, 100, 100)),
+        ),
+    ]));
 
     let content = Paragraph::new(lines);
     frame.render_widget(content, inner);
