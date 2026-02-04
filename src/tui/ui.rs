@@ -627,11 +627,7 @@ fn render_help_overlay(frame: &mut Frame, is_view_mode: bool, is_single_file_mod
         ]
     };
 
-    let title = if is_view_mode {
-        " Viewer Shortcuts "
-    } else {
-        " List Shortcuts "
-    };
+    let title = " Shortcuts ";
 
     let area = frame.area();
     // Calculate dimensions based on content (use chars().count() for Unicode)
@@ -647,8 +643,8 @@ fn render_help_overlay(frame: &mut Frame, is_view_mode: bool, is_single_file_mod
         .unwrap_or(0);
     // Padding: 2 chars left + key + " │ " (3) + action + 2 chars right
     let menu_width = (max_key_len + max_action_len + 11) as u16;
-    // Height: 1 top padding + shortcuts + 1 empty + close hint + 1 bottom padding + 2 border
-    let menu_height = shortcuts.len() as u16 + 6;
+    // Height: 1 top padding + shortcuts + 1 bottom padding + 2 border
+    let menu_height = shortcuts.len() as u16 + 4;
 
     // Center the menu
     let menu_area = Rect {
@@ -690,14 +686,6 @@ fn render_help_overlay(frame: &mut Frame, is_view_mode: bool, is_single_file_mod
             Span::styled(*action, Style::default().fg(Color::White)),
         ]));
     }
-    lines.push(Line::from(""));
-    lines.push(Line::from(vec![
-        Span::raw("  "), // Left padding
-        Span::styled(
-            "Press ? or Esc to close",
-            Style::default().fg(Color::Rgb(100, 100, 100)),
-        ),
-    ]));
 
     let content = Paragraph::new(lines);
     frame.render_widget(content, inner);
