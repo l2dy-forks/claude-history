@@ -56,7 +56,9 @@ pub(crate) fn process_conversation_reader<R: BufRead>(
     // Track token usage per message ID to avoid double-counting streaming entries
     let mut token_usage_by_msg: HashMap<String, TokenUsage> = HashMap::new();
     let mut anonymous_token_count: u64 = 0;
-    let mut total_processing_time_ms: u64 = 0;
+    // Track first and last message timestamps for conversation duration
+    let mut first_timestamp: Option<chrono::DateTime<chrono::FixedOffset>> = None;
+    let mut last_timestamp: Option<chrono::DateTime<chrono::FixedOffset>> = None;
 
     for (line_idx, line) in lines.iter().enumerate() {
         if line.trim().is_empty() {
@@ -67,7 +69,20 @@ pub(crate) fn process_conversation_reader<R: BufRead>(
             Ok(entry) => {
                 // Extract text content
                 match entry {
-                    LogEntry::User { message, cwd, .. } => {
+                    LogEntry::User {
+                        message,
+                        cwd,
+                        timestamp,
+                        ..
+                    } => {
+                        // Track timestamps for conversation duration
+                        if let Ok(ts) = chrono::DateTime::parse_from_rfc3339(&timestamp) {
+                            if first_timestamp.is_none() {
+                                first_timestamp = Some(ts);
+                            }
+                            last_timestamp = Some(ts);
+                        }
+
                         // Extract cwd from the first user message that has it
                         if extracted_cwd.is_none()
                             && let Some(cwd_str) = cwd
@@ -98,7 +113,17 @@ pub(crate) fn process_conversation_reader<R: BufRead>(
                             seen_real_user_message = true;
                         }
                     }
-                    LogEntry::Assistant { message, .. } => {
+                    LogEntry::Assistant {
+                        message, timestamp, ..
+                    } => {
+                        // Track timestamps for conversation duration
+                        if let Ok(ts) = chrono::DateTime::parse_from_rfc3339(&timestamp) {
+                            if first_timestamp.is_none() {
+                                first_timestamp = Some(ts);
+                            }
+                            last_timestamp = Some(ts);
+                        }
+
                         // Extract model name from first assistant message that has it
                         if extracted_model.is_none()
                             && let Some(model) = &message.model
@@ -139,18 +164,7 @@ pub(crate) fn process_conversation_reader<R: BufRead>(
                             extracted_summary = Some(summary.clone());
                         }
                     }
-                    LogEntry::System {
-                        subtype,
-                        duration_ms,
-                        ..
-                    } => {
-                        // Accumulate turn_duration entries
-                        if subtype == "turn_duration"
-                            && let Some(ms) = duration_ms
-                        {
-                            total_processing_time_ms += ms;
-                        }
-                    }
+                    LogEntry::System { .. } => {}
                     _ => {}
                 }
             }
@@ -245,6 +259,20 @@ pub(crate) fn process_conversation_reader<R: BufRead>(
         .sum::<u64>()
         + anonymous_token_count;
 
+    // Calculate conversation duration in minutes
+    let duration_minutes = match (first_timestamp, last_timestamp) {
+        (Some(first), Some(last)) => {
+            let duration = last.signed_duration_since(first);
+            let minutes = duration.num_minutes();
+            if minutes > 0 {
+                Some(minutes as u64)
+            } else {
+                None
+            }
+        }
+        _ => None,
+    };
+
     Ok(Some(Conversation {
         path,
         index: 0,
@@ -259,7 +287,7 @@ pub(crate) fn process_conversation_reader<R: BufRead>(
         summary: extracted_summary,
         model: extracted_model,
         total_tokens,
-        total_processing_time_ms,
+        duration_minutes,
     }))
 }
 

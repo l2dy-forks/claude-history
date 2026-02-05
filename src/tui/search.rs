@@ -167,7 +167,7 @@ mod tests {
             summary: None,
             model: None,
             total_tokens: 0,
-            total_processing_time_ms: 0,
+            duration_minutes: None,
         }
     }
 
