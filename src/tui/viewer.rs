@@ -13,8 +13,8 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 
 const NAME_WIDTH: usize = 9;
-/// Width of timestamp prefix when timing is enabled (HH:MM + space)
-const TIMESTAMP_WIDTH: usize = 6;
+/// Width of timestamp prefix when timing is enabled (space + HH:MM + space)
+const TIMESTAMP_WIDTH: usize = 7;
 const WHITE: (u8, u8, u8) = (255, 255, 255);
 const TEAL: (u8, u8, u8) = (78, 201, 176);
 const DIM_TEAL: (u8, u8, u8) = (60, 160, 140);
@@ -679,7 +679,7 @@ fn render_ledger_block_styled(
         if i == 0 {
             if let Some(ts) = timestamp {
                 spans.push((
-                    format!("{} ", ts),
+                    format!(" {} ", ts),
                     LineStyle {
                         fg: Some((140, 140, 140)),
                         dimmed: false,
