@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.1.21 (2026-02-05)
+
+- Fixed timestamp alignment for subagent messages and empty messages in ledger
+  view
+- Fixed double blank lines appearing after tool calls with empty output
+- `/clear` commands are no longer shown in conversation rendering
+
 ## v0.1.20 (2026-02-05)
 
 - Added toggleable timing display in conversation viewer — press `i` to show
