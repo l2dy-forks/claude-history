@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.1.22 (2026-02-07)
+
+- Added multi-word search support in the viewer — search for phrases like "add
+  feature" to find matches containing both words
+- Timestamps now display on tool calls and results in ledger view (when timing
+  is enabled with `i`)
+- Fixed a crash that could occur when highlighting search matches containing
+  certain Unicode characters
+
 ## v0.1.21 (2026-02-05)
 
 - Fixed timestamp alignment for subagent messages and empty messages in ledger
