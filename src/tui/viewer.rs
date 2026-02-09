@@ -11,6 +11,7 @@ use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
+use unicode_width::UnicodeWidthStr;
 
 const NAME_WIDTH: usize = 9;
 /// Width of timestamp prefix when timing is enabled (space + HH:MM + space)
@@ -317,6 +318,22 @@ fn render_markdown_to_lines(input: &str, max_width: usize) -> Vec<StyledLine> {
     renderer.finish()
 }
 
+struct TuiTableState {
+    rows: Vec<Vec<String>>,
+    current_row: Vec<String>,
+    current_cell: String,
+}
+
+impl TuiTableState {
+    fn new() -> Self {
+        Self {
+            rows: Vec::new(),
+            current_row: Vec::new(),
+            current_cell: String::new(),
+        }
+    }
+}
+
 struct TuiMarkdownRenderer {
     lines: Vec<StyledLine>,
     current_line: Vec<(String, LineStyle)>,
@@ -328,6 +345,7 @@ struct TuiMarkdownRenderer {
     code_block_content: String,
     code_block_lang: String,
     in_list_item_start: bool, // Suppress paragraph blank line right after list bullet
+    table_state: Option<TuiTableState>,
 }
 
 #[derive(Clone)]
@@ -359,6 +377,7 @@ impl TuiMarkdownRenderer {
             code_block_content: String::new(),
             code_block_lang: String::new(),
             in_list_item_start: false,
+            table_state: None,
         }
     }
 
@@ -474,6 +493,20 @@ impl TuiMarkdownRenderer {
             Tag::Link { .. } => {
                 self.style_stack.push(MarkdownStyle::Link);
             }
+            Tag::Table(_) => {
+                self.ensure_blank_line();
+                self.table_state = Some(TuiTableState::new());
+            }
+            Tag::TableHead | Tag::TableRow => {
+                if let Some(ref mut state) = self.table_state {
+                    state.current_row = Vec::new();
+                }
+            }
+            Tag::TableCell => {
+                if let Some(ref mut state) = self.table_state {
+                    state.current_cell = String::new();
+                }
+            }
             _ => {}
         }
     }
@@ -548,11 +581,34 @@ impl TuiMarkdownRenderer {
                 self.style_stack.pop();
                 self.flush_line();
             }
+            TagEnd::Table => {
+                if let Some(state) = self.table_state.take() {
+                    let table_lines = render_table_styled(&state.rows);
+                    self.lines.extend(table_lines);
+                }
+            }
+            TagEnd::TableHead | TagEnd::TableRow => {
+                if let Some(ref mut state) = self.table_state {
+                    let row = std::mem::take(&mut state.current_row);
+                    state.rows.push(row);
+                }
+            }
+            TagEnd::TableCell => {
+                if let Some(ref mut state) = self.table_state {
+                    let cell = std::mem::take(&mut state.current_cell);
+                    state.current_row.push(cell);
+                }
+            }
             _ => {}
         }
     }
 
     fn text(&mut self, text: &str) {
+        if let Some(ref mut state) = self.table_state {
+            state.current_cell.push_str(&text.replace('\n', " "));
+            return;
+        }
+
         if self.in_code_block {
             self.code_block_content.push_str(text);
             return;
@@ -579,6 +635,11 @@ impl TuiMarkdownRenderer {
     }
 
     fn inline_code(&mut self, code: &str) {
+        if let Some(ref mut state) = self.table_state {
+            state.current_cell.push_str(code);
+            return;
+        }
+
         self.push_styled_text(
             code,
             LineStyle {
@@ -666,6 +727,75 @@ impl TuiMarkdownRenderer {
         }
         self.lines
     }
+}
+
+/// Render a table as styled lines with box-drawing characters
+fn render_table_styled(rows: &[Vec<String>]) -> Vec<StyledLine> {
+    if rows.is_empty() {
+        return Vec::new();
+    }
+
+    let dim_style = LineStyle {
+        dimmed: true,
+        ..Default::default()
+    };
+
+    let num_cols = rows.iter().map(|r| r.len()).max().unwrap_or(0);
+    let mut col_widths = vec![0usize; num_cols];
+
+    for row in rows {
+        for (i, cell) in row.iter().enumerate() {
+            if i < num_cols {
+                col_widths[i] = col_widths[i].max(cell.trim().width());
+            }
+        }
+    }
+
+    let mut lines = Vec::new();
+
+    // Build a horizontal border line
+    let build_border = |left: char, mid: char, right: char| -> StyledLine {
+        let mut s = String::new();
+        s.push(left);
+        for (i, &width) in col_widths.iter().enumerate() {
+            s.extend(std::iter::repeat_n('─', width + 2));
+            if i < col_widths.len() - 1 {
+                s.push(mid);
+            }
+        }
+        s.push(right);
+        StyledLine {
+            spans: vec![(s, dim_style.clone())],
+        }
+    };
+
+    // Top border
+    lines.push(build_border('┌', '┬', '┐'));
+
+    // Rows
+    for (row_idx, row) in rows.iter().enumerate() {
+        let mut spans = Vec::new();
+        for (i, width) in col_widths.iter().enumerate() {
+            spans.push(("│ ".to_string(), dim_style.clone()));
+            let cell = row.get(i).map(|s| s.trim()).unwrap_or("");
+            let cell_width = cell.width();
+            let padding = width.saturating_sub(cell_width);
+            spans.push((cell.to_string(), LineStyle::default()));
+            spans.push((format!("{} ", " ".repeat(padding)), dim_style.clone()));
+        }
+        spans.push(("│".to_string(), dim_style.clone()));
+        lines.push(StyledLine { spans });
+
+        // Separator between rows
+        if row_idx < rows.len() - 1 {
+            lines.push(build_border('├', '┼', '┤'));
+        }
+    }
+
+    // Bottom border
+    lines.push(build_border('└', '┴', '┘'));
+
+    lines
 }
 
 /// Apply italic and dimmed styling to thinking block content
@@ -1602,6 +1732,51 @@ mod tests {
         // Just verify it renders without panicking and contains the text
         assert!(result.contains("bold"));
         assert!(result.contains("italic"));
+    }
+
+    #[test]
+    fn test_table_basic() {
+        let input = "| A | B |\n|---|---|\n| 1 | 2 |";
+        let result = render_to_text(input, 80);
+        eprintln!("Table output:\n{}", result);
+        assert!(result.contains('┌'), "Expected top-left corner");
+        assert!(result.contains('│'), "Expected vertical border");
+        assert!(result.contains('└'), "Expected bottom-left corner");
+        assert!(result.contains(" A "), "Expected cell A");
+        assert!(result.contains(" B "), "Expected cell B");
+        assert!(result.contains(" 1 "), "Expected cell 1");
+        assert!(result.contains(" 2 "), "Expected cell 2");
+    }
+
+    #[test]
+    fn test_table_column_widths() {
+        let input = "| Short | Longer text |\n|---|---|\n| A | B |";
+        let result = render_to_text(input, 80);
+        eprintln!("Table output:\n{}", result);
+        assert!(result.contains("Short"), "Expected Short");
+        assert!(result.contains("Longer text"), "Expected Longer text");
+        // Columns should be sized to fit longest content
+        let lines: Vec<&str> = result.lines().collect();
+        // All border lines should be same width
+        let border_widths: Vec<usize> = lines
+            .iter()
+            .filter(|l| l.starts_with('┌') || l.starts_with('├') || l.starts_with('└'))
+            .map(|l| l.chars().count())
+            .collect();
+        assert!(
+            border_widths.windows(2).all(|w| w[0] == w[1]),
+            "Border lines should be same width: {:?}",
+            border_widths
+        );
+    }
+
+    #[test]
+    fn test_table_multiple_rows() {
+        let input = "| H1 | H2 | H3 |\n|----|----|----|\n| A | B | C |\n| D | E | F |";
+        let result = render_to_text(input, 80);
+        eprintln!("Table output:\n{}", result);
+        assert!(result.contains('├'), "Expected row separators");
+        assert!(result.contains('┼'), "Expected cross junctions");
     }
 
     #[test]
