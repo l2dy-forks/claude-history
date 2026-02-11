@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.1.25 (2026-02-11)
+
+- Added `--show-id` (`-i`) flag to print the selected conversation's session ID,
+  useful for resuming with custom shell aliases (e.g.,
+  `claude --resume $(claude-history --show-id)`)
+- Added `I` keybinding in the viewer to copy the session ID to clipboard
+
 ## v0.1.24 (2026-02-11)
 
 - Tool calls now default to **truncated** mode, showing the header and first few
