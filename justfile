@@ -47,16 +47,8 @@ run *ARGS:
     cargo run -- "$@"
 
 # Release a new patch version
-release-patch:
+release:
     @just _release patch
-
-# Release a new minor version
-release-minor:
-    @just _release minor
-
-# Release a new major version
-release-major:
-    @just _release major
 
 # Internal release helper
 _release bump:
