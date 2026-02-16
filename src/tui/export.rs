@@ -265,8 +265,9 @@ fn generate_ledger(path: &Path, options: ExportOptions) -> std::io::Result<Strin
             match entry {
                 LogEntry::User { message, .. } => {
                     if let Some(text) = extract_user_text(&message) {
-                        let wrapped = wrap_plain_text(&text, content_width);
-                        append_ledger_block(&mut output, "You", &wrapped, NAME_WIDTH);
+                        let rendered = crate::markdown::render_markdown_plain(&text, content_width);
+                        let rendered = rendered.trim_end();
+                        append_ledger_block(&mut output, "You", rendered, NAME_WIDTH);
                         output.push('\n');
                     }
                     // Tool results
@@ -276,6 +277,9 @@ fn generate_ledger(path: &Path, options: ExportOptions) -> std::io::Result<Strin
                         for block in blocks {
                             if let ContentBlock::ToolResult { content, .. } = block {
                                 let content_str = format_tool_result_for_export(content.as_ref());
+                                if content_str.trim().is_empty() {
+                                    continue;
+                                }
                                 let wrapped = wrap_plain_text(&content_str, content_width);
                                 append_ledger_block(&mut output, "↳ Result", &wrapped, NAME_WIDTH);
                                 output.push('\n');
