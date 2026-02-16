@@ -55,6 +55,7 @@ struct MarkdownRenderer {
     pending_text: String,
     at_line_start: bool,
     in_list_item_start: bool, // Suppress paragraph newline right after list bullet
+    item_indent: usize,       // Width of current list item prefix for continuation lines
     table_state: Option<TableState>,
 }
 
@@ -103,6 +104,7 @@ impl MarkdownRenderer {
             pending_text: String::new(),
             at_line_start: true,
             in_list_item_start: false,
+            item_indent: 0,
             table_state: None,
         }
     }
@@ -214,9 +216,14 @@ impl MarkdownRenderer {
                 let plain = self.is_plain();
                 if let Some(ctx) = self.list_stack.last_mut() {
                     match &mut ctx.index {
-                        None => self.output.push_str(&format!("{}- ", indent)),
+                        None => {
+                            let bullet = format!("{}- ", indent);
+                            self.item_indent = bullet.len();
+                            self.output.push_str(&bullet);
+                        }
                         Some(n) => {
                             let bullet = format!("{}{}. ", indent, n);
+                            self.item_indent = bullet.len();
                             if plain {
                                 self.output.push_str(&bullet);
                             } else {
@@ -323,6 +330,7 @@ impl MarkdownRenderer {
             }
             TagEnd::Item => {
                 self.flush_pending();
+                self.item_indent = 0;
                 self.in_list_item_start = false; // Clear flag when item ends
             }
             TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough => {
@@ -440,20 +448,23 @@ impl MarkdownRenderer {
 
         let text = std::mem::take(&mut self.pending_text);
 
-        // Wrap the plain text (stripping ANSI that may have been added by inline code)
-        // Then apply styles to each line
-        let wrapped = wrap_text_preserve_ansi(&text, self.max_width);
+        // When inside a list item, reduce wrap width to account for the bullet prefix
+        let wrap_width = if self.item_indent > 0 {
+            self.max_width.saturating_sub(self.item_indent)
+        } else {
+            self.max_width
+        };
+
+        let wrapped = wrap_text_preserve_ansi(&text, wrap_width);
 
         for (i, line) in wrapped.iter().enumerate() {
             if i > 0 {
                 self.output.push('\n');
-                // Add list indent for continuation lines
-                if let Some(ctx) = self.list_stack.last() {
-                    let indent = "  ".repeat(ctx.depth);
-                    self.output.push_str(&format!("{}  ", indent));
+                // Add continuation indent matching the list item prefix width
+                if self.item_indent > 0 {
+                    self.output.push_str(&" ".repeat(self.item_indent));
                 }
             }
-            // Styles are already applied in text(), just output the line
             self.output.push_str(line);
         }
 
@@ -949,5 +960,46 @@ Next paragraph here."#;
             "Plain rule should not contain ANSI: {:?}",
             result
         );
+    }
+
+    #[test]
+    fn test_plain_list_continuation_indent() {
+        // Long list item text should wrap with proper continuation indent
+        let input = "4. This is a long list item that should wrap and the continuation line should be indented to match the bullet prefix width";
+        let result = render_markdown_plain(input, 50);
+        eprintln!("List continuation:\n{}", result);
+        let lines: Vec<&str> = result.lines().collect();
+        assert!(lines.len() > 1, "Should wrap to multiple lines");
+        // First line starts with "4. "
+        assert!(
+            lines[0].starts_with("4. "),
+            "First line should start with bullet: {:?}",
+            lines[0]
+        );
+        // Continuation lines should be indented by 3 spaces (matching "4. " width)
+        for line in &lines[1..] {
+            assert!(
+                line.starts_with("   "),
+                "Continuation should be indented 3 spaces: {:?}",
+                line
+            );
+        }
+    }
+
+    #[test]
+    fn test_plain_unordered_list_continuation_indent() {
+        let input = "- This is a long unordered list item that should wrap and the continuation line should be indented to match";
+        let result = render_markdown_plain(input, 40);
+        eprintln!("Unordered list continuation:\n{}", result);
+        let lines: Vec<&str> = result.lines().collect();
+        assert!(lines.len() > 1, "Should wrap to multiple lines");
+        // Continuation lines should be indented by 2 spaces (matching "- " width)
+        for line in &lines[1..] {
+            assert!(
+                line.starts_with("  "),
+                "Continuation should be indented 2 spaces: {:?}",
+                line
+            );
+        }
     }
 }

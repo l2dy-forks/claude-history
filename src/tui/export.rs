@@ -244,7 +244,7 @@ fn generate_markdown(path: &Path, options: ExportOptions) -> std::io::Result<Str
 }
 
 /// Total line width for ledger export (including name column and separator)
-const LEDGER_WIDTH: usize = 80;
+const LEDGER_WIDTH: usize = 90;
 
 /// Generate ledger-style format (formatted like the TUI viewer)
 fn generate_ledger(path: &Path, options: ExportOptions) -> std::io::Result<String> {
@@ -289,7 +289,8 @@ fn generate_ledger(path: &Path, options: ExportOptions) -> std::io::Result<Strin
                             ContentBlock::Text { text } => {
                                 let rendered =
                                     crate::markdown::render_markdown_plain(text, content_width);
-                                append_ledger_block(&mut output, "Claude", &rendered, NAME_WIDTH);
+                                let rendered = rendered.trim_end();
+                                append_ledger_block(&mut output, "Claude", rendered, NAME_WIDTH);
                                 output.push('\n');
                             }
                             ContentBlock::ToolUse { name, input, .. } if options.show_tools => {
@@ -301,7 +302,8 @@ fn generate_ledger(path: &Path, options: ExportOptions) -> std::io::Result<Strin
                             ContentBlock::Thinking { thinking, .. } if options.show_thinking => {
                                 let rendered =
                                     crate::markdown::render_markdown_plain(thinking, content_width);
-                                append_ledger_block(&mut output, "Thinking", &rendered, NAME_WIDTH);
+                                let rendered = rendered.trim_end();
+                                append_ledger_block(&mut output, "Thinking", rendered, NAME_WIDTH);
                                 output.push('\n');
                             }
                             _ => {}
