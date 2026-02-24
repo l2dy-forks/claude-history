@@ -557,7 +557,8 @@ fn process_entry<F: OutputFormatter>(
     match entry {
         LogEntry::Summary { .. }
         | LogEntry::FileHistorySnapshot { .. }
-        | LogEntry::System { .. } => {
+        | LogEntry::System { .. }
+        | LogEntry::CustomTitle { .. } => {
             // Skip metadata entries
         }
         LogEntry::Progress { data, .. } => {

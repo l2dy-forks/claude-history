@@ -53,6 +53,11 @@ pub enum LogEntry {
         #[serde(flatten)]
         extra: serde_json::Value,
     },
+    #[serde(rename = "custom-title")]
+    CustomTitle {
+        #[serde(rename = "customTitle")]
+        custom_title: String,
+    },
 }
 
 #[derive(Debug, Deserialize)]

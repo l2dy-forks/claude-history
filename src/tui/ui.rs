@@ -202,6 +202,13 @@ fn header_fits_single_line(conv: &crate::history::Conversation, terminal_width: 
 
     let project = conv.project_name.as_deref().unwrap_or("Unknown");
 
+    // Calculate custom title length if present
+    let custom_title_len = conv
+        .custom_title
+        .as_ref()
+        .map(|t| t.len() + 3) // + " · "
+        .unwrap_or(0);
+
     // Calculate model length if present
     let model_len = conv
         .model
@@ -235,10 +242,11 @@ fn header_fits_single_line(conv: &crate::history::Conversation, terminal_width: 
         3 + formatted.len() // " · " + duration
     });
 
-    // Format: "  project · model · msg_count · duration · tokens · timestamp · summary"
+    // Format: "  project · custom_title · model · msg_count · duration · tokens · timestamp · summary"
     let total_len = 2
         + project.len()
         + 3
+        + custom_title_len
         + model_len
         + msg_count_len
         + duration_len
@@ -311,74 +319,94 @@ fn render_view_header(frame: &mut Frame, app: &App, state: &ViewState, area: Rec
         .iter()
         .find(|c| c.path == state.conversation_path);
 
-    let (project, model, msg_count, duration, tokens, timestamp, summary, fits_single) =
-        if let Some(conv) = conv {
-            let project = conv.project_name.as_deref().unwrap_or("Unknown");
-            let model = conv.model.as_ref().map(|m| format_model_name(m));
-            let msg_count = if conv.message_count == 1 {
-                "1 message".to_string()
-            } else {
-                format!("{} messages", conv.message_count)
-            };
-            // Format conversation duration
-            let duration = conv.duration_minutes.map(|m| {
-                if m >= 60 {
-                    format!("{}h {}m", m / 60, m % 60)
-                } else {
-                    format!("{}m", m)
-                }
-            });
-
-            // Calculate header length to determine if long token format fits
-            let model_len = model.as_ref().map(|m| m.len() + 3).unwrap_or(0); // + " · "
-            let duration_len = duration.as_ref().map(|d| d.len() + 3).unwrap_or(0); // + " · "
-            let base_len =
-                2 + project.len() + 3 + model_len + msg_count.len() + duration_len + 3 + 16; // 16 = timestamp
-
-            let tokens = if conv.total_tokens > 0 {
-                let long_form = format_tokens_long(conv.total_tokens);
-                let short_form = format_tokens(conv.total_tokens);
-                // Use long form if it fits (base + " · " + tokens <= width)
-                if base_len + 3 + long_form.len() <= area.width as usize {
-                    Some(long_form)
-                } else {
-                    Some(short_form)
-                }
-            } else {
-                None
-            };
-
-            let timestamp = conv.timestamp.format("%Y-%m-%d %H:%M").to_string();
-            let fits = header_fits_single_line(conv, area.width);
-            (
-                project.to_string(),
-                model,
-                msg_count,
-                duration,
-                tokens,
-                timestamp,
-                conv.summary.clone(),
-                fits,
-            )
+    let (
+        project,
+        custom_title,
+        model,
+        msg_count,
+        duration,
+        tokens,
+        timestamp,
+        summary,
+        fits_single,
+    ) = if let Some(conv) = conv {
+        let project = conv.project_name.as_deref().unwrap_or("Unknown");
+        let custom_title = conv.custom_title.clone();
+        let model = conv.model.as_ref().map(|m| format_model_name(m));
+        let msg_count = if conv.message_count == 1 {
+            "1 message".to_string()
         } else {
-            // Fallback if parsing failed
-            let project = state
-                .conversation_path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("Unknown")
-                .to_string();
-            (
-                project,
-                None,
-                "".to_string(),
-                None,
-                None,
-                "".to_string(),
-                None,
-                true,
-            )
+            format!("{} messages", conv.message_count)
         };
+        // Format conversation duration
+        let duration = conv.duration_minutes.map(|m| {
+            if m >= 60 {
+                format!("{}h {}m", m / 60, m % 60)
+            } else {
+                format!("{}m", m)
+            }
+        });
+
+        // Calculate header length to determine if long token format fits
+        let custom_title_len = custom_title.as_ref().map(|t| t.len() + 3).unwrap_or(0); // + " · "
+        let model_len = model.as_ref().map(|m| m.len() + 3).unwrap_or(0); // + " · "
+        let duration_len = duration.as_ref().map(|d| d.len() + 3).unwrap_or(0); // + " · "
+        let base_len = 2
+            + project.len()
+            + 3
+            + custom_title_len
+            + model_len
+            + msg_count.len()
+            + duration_len
+            + 3
+            + 16; // 16 = timestamp
+
+        let tokens = if conv.total_tokens > 0 {
+            let long_form = format_tokens_long(conv.total_tokens);
+            let short_form = format_tokens(conv.total_tokens);
+            // Use long form if it fits (base + " · " + tokens <= width)
+            if base_len + 3 + long_form.len() <= area.width as usize {
+                Some(long_form)
+            } else {
+                Some(short_form)
+            }
+        } else {
+            None
+        };
+
+        let timestamp = conv.timestamp.format("%Y-%m-%d %H:%M").to_string();
+        let fits = header_fits_single_line(conv, area.width);
+        (
+            project.to_string(),
+            custom_title,
+            model,
+            msg_count,
+            duration,
+            tokens,
+            timestamp,
+            conv.summary.clone(),
+            fits,
+        )
+    } else {
+        // Fallback if parsing failed
+        let project = state
+            .conversation_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("Unknown")
+            .to_string();
+        (
+            project,
+            None,
+            None,
+            "".to_string(),
+            None,
+            None,
+            "".to_string(),
+            None,
+            true,
+        )
+    };
 
     // Build header spans for metadata line
     let build_metadata_spans = |include_summary: bool| {
@@ -389,6 +417,15 @@ fn render_view_header(frame: &mut Frame, app: &App, state: &ViewState, area: Rec
                 Style::default().fg(Color::Rgb(78, 201, 176)).bold(),
             ),
         ];
+
+        // Add custom title if present
+        if let Some(ref t) = custom_title {
+            spans.push(Span::raw(" · "));
+            spans.push(Span::styled(
+                t.clone(),
+                Style::default().fg(Color::Rgb(200, 180, 120)), // Warm gold
+            ));
+        }
 
         // Add model if present
         if let Some(ref m) = model {
@@ -1049,12 +1086,19 @@ fn render_list(frame: &mut Frame, app: &App, area: Rect) {
                 Style::default().fg(Color::Rgb(60, 60, 60))
             };
 
-            // Build left part: indicator + project + optional summary
+            // Build left part: indicator + project + optional custom title + optional summary
             let project_part = conv
                 .project_name
                 .as_ref()
                 .map(|name| name.to_string())
                 .unwrap_or_default();
+
+            // Build custom title part (shown in full, not truncated)
+            let custom_title_part = conv
+                .custom_title
+                .as_ref()
+                .filter(|s| !s.is_empty())
+                .map(|s| format!(" · {}", s));
 
             // Calculate right-side length first to determine available space for summary
             let duration_len = duration
@@ -1065,11 +1109,16 @@ fn render_list(frame: &mut Frame, app: &App, area: Rect) {
                 msg_count.chars().count() + duration_len + 3 + timestamp.chars().count(); // 3 for " · "
             let indicator_len = indicator.chars().count();
             let project_len = project_part.chars().count();
+            let custom_title_len = custom_title_part
+                .as_ref()
+                .map(|s| s.chars().count())
+                .unwrap_or(0);
             let min_padding = 2; // Minimum padding between content and timestamp
 
             // Calculate available width for summary (filter empty summaries)
-            let available_for_summary =
-                width.saturating_sub(indicator_len + project_len + right_len + min_padding + 4); // 4 for " · " prefix and ellipsis
+            let available_for_summary = width.saturating_sub(
+                indicator_len + project_len + custom_title_len + right_len + min_padding + 4,
+            ); // 4 for " · " prefix and ellipsis
 
             // Build summary part (dimmer, dynamically truncated based on available space)
             let summary_part = conv
@@ -1093,6 +1142,7 @@ fn render_list(frame: &mut Frame, app: &App, area: Rect) {
             // Calculate padding for right-aligned timestamp + message count
             let left_len = indicator_len
                 + project_len
+                + custom_title_len
                 + summary_part
                     .as_ref()
                     .map(|s| s.chars().count())
@@ -1122,6 +1172,9 @@ fn render_list(frame: &mut Frame, app: &App, area: Rect) {
                 Style::default()
             };
 
+            let custom_title_style = Style::default().fg(Color::Rgb(200, 180, 120)); // Warm gold
+            let custom_title_highlight_style = Style::default().fg(Color::Rgb(230, 210, 150)); // Lighter gold for highlights
+
             // Build header with highlighted project name
             let mut header_spans = vec![Span::styled(indicator, indicator_style)];
             header_spans.extend(highlight_text(
@@ -1130,6 +1183,16 @@ fn render_list(frame: &mut Frame, app: &App, area: Rect) {
                 project_style,
                 highlight_style,
             ));
+
+            // Add custom title if present (with search highlighting)
+            if let Some(ref title) = custom_title_part {
+                header_spans.extend(highlight_text(
+                    title,
+                    &query_normalized,
+                    custom_title_style,
+                    custom_title_highlight_style,
+                ));
+            }
 
             // Add summary if present (with search highlighting)
             if let Some(ref summary) = summary_part {

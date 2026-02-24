@@ -52,6 +52,7 @@ pub(crate) fn process_conversation_reader<R: BufRead>(
     let mut message_count: usize = 0;
     let mut parse_errors: Vec<ParseError> = Vec::new();
     let mut extracted_summary: Option<String> = None;
+    let mut extracted_custom_title: Option<String> = None;
     let mut extracted_model: Option<String> = None;
     // Track token usage per message ID to avoid double-counting streaming entries
     let mut token_usage_by_msg: HashMap<String, TokenUsage> = HashMap::new();
@@ -166,6 +167,12 @@ pub(crate) fn process_conversation_reader<R: BufRead>(
                             extracted_summary = Some(summary.clone());
                         }
                     }
+                    LogEntry::CustomTitle { custom_title } => {
+                        // Take the last custom title (user may rename multiple times)
+                        if !custom_title.is_empty() {
+                            extracted_custom_title = Some(custom_title.clone());
+                        }
+                    }
                     LogEntry::System { .. } => {}
                     _ => {}
                 }
@@ -244,10 +251,13 @@ pub(crate) fn process_conversation_reader<R: BufRead>(
             .join(" ... ")
     };
 
-    // Create full text for searching (all messages + summary)
+    // Create full text for searching (all messages + summary + custom title)
     let mut full_text = all_parts.join(" ");
     if let Some(ref summary) = extracted_summary {
         full_text = format!("{} {}", summary, full_text);
+    }
+    if let Some(ref custom_title) = extracted_custom_title {
+        full_text = format!("{} {}", custom_title, full_text);
     }
 
     // Normalize whitespace
@@ -292,6 +302,7 @@ pub(crate) fn process_conversation_reader<R: BufRead>(
         message_count,
         parse_errors,
         summary: extracted_summary,
+        custom_title: extracted_custom_title,
         model: extracted_model,
         total_tokens,
         duration_minutes,
@@ -840,5 +851,85 @@ mod tests {
         let conv = parse_jsonl(&content).unwrap().unwrap();
         assert!(conv.model.is_none(), "Should have no model");
         assert_eq!(conv.total_tokens, 0, "Should have zero tokens");
+    }
+
+    // === Custom title extraction ===
+
+    #[test]
+    fn extracts_custom_title_from_jsonl() {
+        let content = [
+            r#"{"type": "custom-title", "customTitle": "my session", "sessionId": "abc123"}"#
+                .to_string(),
+            user_msg("Hello", None),
+            assistant_msg("Hi there"),
+        ]
+        .join("\n");
+
+        let conv = parse_jsonl(&content).unwrap().unwrap();
+        assert_eq!(
+            conv.custom_title,
+            Some("my session".to_string()),
+            "Should extract custom title"
+        );
+    }
+
+    #[test]
+    fn takes_last_custom_title_if_multiple() {
+        let content = [
+            r#"{"type": "custom-title", "customTitle": "first name", "sessionId": "abc"}"#
+                .to_string(),
+            user_msg("Hello", None),
+            assistant_msg("Hi there"),
+            r#"{"type": "custom-title", "customTitle": "renamed", "sessionId": "abc"}"#.to_string(),
+        ]
+        .join("\n");
+
+        let conv = parse_jsonl(&content).unwrap().unwrap();
+        assert_eq!(
+            conv.custom_title,
+            Some("renamed".to_string()),
+            "Should keep last custom title (user renamed)"
+        );
+    }
+
+    #[test]
+    fn custom_title_included_in_full_text() {
+        let content = [
+            r#"{"type": "custom-title", "customTitle": "unique-session-name", "sessionId": "abc"}"#
+                .to_string(),
+            user_msg("Hello", None),
+            assistant_msg("Hi there"),
+        ]
+        .join("\n");
+
+        let conv = parse_jsonl(&content).unwrap().unwrap();
+        assert!(
+            conv.full_text.contains("unique-session-name"),
+            "Custom title should be included in full_text for searching"
+        );
+    }
+
+    #[test]
+    fn ignores_empty_custom_title() {
+        let content = [
+            r#"{"type": "custom-title", "customTitle": "", "sessionId": "abc"}"#.to_string(),
+            user_msg("Hello", None),
+            assistant_msg("Hi there"),
+        ]
+        .join("\n");
+
+        let conv = parse_jsonl(&content).unwrap().unwrap();
+        assert!(
+            conv.custom_title.is_none(),
+            "Empty custom title should be treated as None"
+        );
+    }
+
+    #[test]
+    fn handles_conversation_without_custom_title() {
+        let content = [user_msg("Hello", None), assistant_msg("Hi there")].join("\n");
+
+        let conv = parse_jsonl(&content).unwrap().unwrap();
+        assert!(conv.custom_title.is_none(), "Should have no custom title");
     }
 }
