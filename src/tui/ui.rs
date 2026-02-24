@@ -1093,12 +1093,19 @@ fn render_list(frame: &mut Frame, app: &App, area: Rect) {
                 .map(|name| name.to_string())
                 .unwrap_or_default();
 
-            // Build custom title part (shown in full, not truncated)
+            // Build custom title part (truncated if very long)
             let custom_title_part = conv
                 .custom_title
                 .as_ref()
                 .filter(|s| !s.is_empty())
-                .map(|s| format!(" · {}", s));
+                .map(|s| {
+                    let max_title = 40;
+                    if s.chars().count() > max_title {
+                        format!(" · {}…", s.chars().take(max_title - 1).collect::<String>())
+                    } else {
+                        format!(" · {}", s)
+                    }
+                });
 
             // Calculate right-side length first to determine available space for summary
             let duration_len = duration
