@@ -206,7 +206,7 @@ fn header_fits_single_line(conv: &crate::history::Conversation, terminal_width: 
     let custom_title_len = conv
         .custom_title
         .as_ref()
-        .map(|t| t.len() + 3) // + " · "
+        .map(|t| t.chars().count() + 3) // + " · "
         .unwrap_or(0);
 
     // Calculate model length if present
@@ -348,7 +348,10 @@ fn render_view_header(frame: &mut Frame, app: &App, state: &ViewState, area: Rec
         });
 
         // Calculate header length to determine if long token format fits
-        let custom_title_len = custom_title.as_ref().map(|t| t.len() + 3).unwrap_or(0); // + " · "
+        let custom_title_len = custom_title
+            .as_ref()
+            .map(|t| t.chars().count() + 3)
+            .unwrap_or(0); // + " · "
         let model_len = model.as_ref().map(|m| m.len() + 3).unwrap_or(0); // + " · "
         let duration_len = duration.as_ref().map(|d| d.len() + 3).unwrap_or(0); // + " · "
         let base_len = 2

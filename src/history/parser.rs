@@ -169,9 +169,13 @@ pub(crate) fn process_conversation_reader<R: BufRead>(
                     }
                     LogEntry::CustomTitle { custom_title } => {
                         // Take the last custom title (user may rename multiple times)
-                        if !custom_title.is_empty() {
-                            extracted_custom_title = Some(custom_title.clone());
-                        }
+                        // Empty title clears any previous title
+                        let trimmed = custom_title.trim();
+                        extracted_custom_title = if trimmed.is_empty() {
+                            None
+                        } else {
+                            Some(trimmed.to_owned())
+                        };
                     }
                     LogEntry::System { .. } => {}
                     _ => {}
@@ -922,6 +926,24 @@ mod tests {
         assert!(
             conv.custom_title.is_none(),
             "Empty custom title should be treated as None"
+        );
+    }
+
+    #[test]
+    fn empty_custom_title_clears_previous() {
+        let content = [
+            r#"{"type": "custom-title", "customTitle": "initial name", "sessionId": "abc"}"#
+                .to_string(),
+            user_msg("Hello", None),
+            assistant_msg("Hi there"),
+            r#"{"type": "custom-title", "customTitle": "", "sessionId": "abc"}"#.to_string(),
+        ]
+        .join("\n");
+
+        let conv = parse_jsonl(&content).unwrap().unwrap();
+        assert!(
+            conv.custom_title.is_none(),
+            "Empty custom title should clear previous title"
         );
     }
 
