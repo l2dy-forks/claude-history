@@ -97,7 +97,8 @@ Search uses fuzzy word matching with the following features:
 - **Case-insensitive**: "config" matches "CONFIG"
 - **Underscore as separator**: "api key" matches "API_KEY"
 - **Prefix matching**: "auth" matches "authentication", "authorize"
-- **Multi-word AND logic**: all query words must match
+- **Word boundary**: matches start at word boundaries, so "red" won't match inside "fired"
+- **Multi-word AND logic**: all query words must match, each word is highlighted individually
 
 Results are ranked by recency, so recent conversations appear first.
 
