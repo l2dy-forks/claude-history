@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.1.28 (2026-03-04)
+
+- Subagent (Task tool) messages are now nested under their parent task, keeping
+  the conversation view clean and organized with `↳` prefixed entries
+- Subagent internals are hidden by default and revealed with `T` or
+  `--show-thinking`, same as thinking blocks
+- XML-tagged content (system reminders, analysis blocks) now displays correctly
+  instead of being silently stripped
+- Conversations from CI or headless Claude runs that lack timestamps now parse
+  and display correctly
+
 ## v0.1.27 (2026-02-26)
 
 - Session titles (set via `/rename` in Claude Code) now appear in the
