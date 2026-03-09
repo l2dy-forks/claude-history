@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.1.29 (2026-03-09)
+
+- Added `--fork-session` flag to resume a conversation as a fork, creating a new
+  branch from an existing session
+- Cross-project forking: when forking a session from a different project, the
+  session files are automatically copied to the current project so Claude
+  resumes in the right context
+- Added configurable keybindings via the `[keys]` section in the config file,
+  allowing rebinding of resume (`Ctrl+R`), fork (`Ctrl+F`), and delete
+  (`Ctrl+X`) actions
+- Session list search now matches session UUIDs, making it easier to find a
+  specific conversation by ID
+- Fixed markdown rendering issues: soft breaks no longer collapse words
+  together, inline code no longer clips at block edges, and list item spacing is
+  correct
+
 ## v0.1.28 (2026-03-04)
 
 - Subagent (Task tool) messages are now nested under their parent task, keeping
