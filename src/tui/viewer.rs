@@ -1955,10 +1955,7 @@ mod tests {
             .iter()
             .position(|l| l.starts_with("2. "))
             .expect("Should find '2. '");
-        assert!(
-            line2_idx >= 1,
-            "Second item should appear after first"
-        );
+        assert!(line2_idx >= 1, "Second item should appear after first");
     }
 
     #[test]
