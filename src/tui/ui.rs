@@ -1,3 +1,4 @@
+use crate::config::KeyBindings;
 use crate::tui::app::{
     App, AppMode, DialogMode, LineStyle, LoadingState, RenderedLine, ViewSearchMode, ViewState,
 };
@@ -146,7 +147,7 @@ fn render_list_mode(frame: &mut Frame, app: &App) {
 
     // Render help overlay on top of everything if active
     if *app.dialog_mode() == DialogMode::Help {
-        render_help_overlay(frame, false, false);
+        render_help_overlay(frame, false, false, app.keys());
     }
 }
 
@@ -174,15 +175,16 @@ fn render_list_status_bar(frame: &mut Frame, app: &App, area: Rect) {
         (key_style, label_style)
     };
 
+    let keys = app.keys();
     let spans = vec![
         Span::raw("  "),
         Span::styled("Enter", action_key),
         Span::styled(" open  ", action_label),
-        Span::styled("^R", action_key),
+        Span::styled(keys.resume.short_label(), action_key),
         Span::styled(" resume  ", action_label),
-        Span::styled("^F", action_key),
+        Span::styled(keys.fork.short_label(), action_key),
         Span::styled(" fork  ", action_label),
-        Span::styled("^X", action_key),
+        Span::styled(keys.delete.short_label(), action_key),
         Span::styled(" delete  ", action_label),
         Span::styled("?", key_style),
         Span::styled("help  ", label_style),
@@ -309,7 +311,7 @@ fn render_view_mode(frame: &mut Frame, app: &App, state: &ViewState) {
         DialogMode::ConfirmDelete => render_confirm_dialog(frame, chunks[2]),
         DialogMode::ExportMenu { selected } => render_export_menu(frame, *selected, false),
         DialogMode::YankMenu { selected } => render_export_menu(frame, *selected, true),
-        DialogMode::Help => render_help_overlay(frame, true, app.is_single_file_mode()),
+        DialogMode::Help => render_help_overlay(frame, true, app.is_single_file_mode(), app.keys()),
         DialogMode::None => {}
     }
 }
@@ -604,11 +606,11 @@ fn render_view_status_bar(frame: &mut Frame, app: &App, state: &ViewState, area:
             Span::styled("xport  ", label_style),
             Span::styled("y", key_style),
             Span::styled("ank  ", label_style),
-            Span::styled("^R", key_style),
+            Span::styled(app.keys().resume.short_label(), key_style),
             Span::styled(" resume  ", label_style),
-            Span::styled("^F", key_style),
+            Span::styled(app.keys().fork.short_label(), key_style),
             Span::styled(" fork  ", label_style),
-            Span::styled("^X", key_style),
+            Span::styled(app.keys().delete.short_label(), key_style),
             Span::styled(" del  ", label_style),
             Span::styled("q", key_style),
             Span::styled("uit", label_style),
@@ -915,51 +917,56 @@ fn render_export_menu(frame: &mut Frame, selected: usize, is_yank: bool) {
     frame.render_widget(menu_content, inner);
 }
 
-fn render_help_overlay(frame: &mut Frame, is_view_mode: bool, is_single_file_mode: bool) {
+fn render_help_overlay(
+    frame: &mut Frame,
+    is_view_mode: bool,
+    is_single_file_mode: bool,
+    keys: &KeyBindings,
+) {
     let exit_text = if is_single_file_mode {
         "Quit"
     } else {
         "Back to list"
     };
 
-    let shortcuts: Vec<(&str, &str)> = if is_view_mode {
+    let shortcuts: Vec<(String, &str)> = if is_view_mode {
         vec![
-            ("j / ↓", "Scroll down"),
-            ("k / ↑", "Scroll up"),
-            ("d / Ctrl+D", "Half page down"),
-            ("u / Ctrl+U", "Half page up"),
-            ("g / Home", "Jump to top"),
-            ("G / End", "Jump to bottom"),
-            ("/", "Search"),
-            ("n / N", "Next / prev match"),
-            ("t", "Cycle tools: off/trunc/full"),
-            ("T", "Toggle thinking"),
-            ("i", "Toggle timing"),
-            ("e", "Export to file"),
-            ("y", "Copy to clipboard"),
-            ("p", "Show file path"),
-            ("Y", "Copy path"),
-            ("I", "Copy session ID"),
-            ("Ctrl+R", "Resume"),
-            ("Ctrl+F", "Fork resume"),
-            ("Ctrl+X", "Delete"),
-            ("q / Esc", exit_text),
+            ("j / ↓".into(), "Scroll down"),
+            ("k / ↑".into(), "Scroll up"),
+            ("d / Ctrl+D".into(), "Half page down"),
+            ("u / Ctrl+U".into(), "Half page up"),
+            ("g / Home".into(), "Jump to top"),
+            ("G / End".into(), "Jump to bottom"),
+            ("/".into(), "Search"),
+            ("n / N".into(), "Next / prev match"),
+            ("t".into(), "Cycle tools: off/trunc/full"),
+            ("T".into(), "Toggle thinking"),
+            ("i".into(), "Toggle timing"),
+            ("e".into(), "Export to file"),
+            ("y".into(), "Copy to clipboard"),
+            ("p".into(), "Show file path"),
+            ("Y".into(), "Copy path"),
+            ("I".into(), "Copy session ID"),
+            (keys.resume.help_label(), "Resume"),
+            (keys.fork.help_label(), "Fork resume"),
+            (keys.delete.help_label(), "Delete"),
+            ("q / Esc".into(), exit_text),
         ]
     } else {
         vec![
-            ("↑ / ↓", "Move selection"),
-            ("← / →", "Move cursor"),
-            ("Ctrl+P / N", "Move selection"),
-            ("Ctrl+D / U", "Half page down/up"),
-            ("PgUp / PgDn", "Jump by page"),
-            ("Home / End", "Jump to first/last"),
-            ("Enter", "Open viewer"),
-            ("Ctrl+O", "Select and exit"),
-            ("Ctrl+W", "Delete word"),
-            ("Ctrl+R", "Resume"),
-            ("Ctrl+F", "Fork resume"),
-            ("Ctrl+X", "Delete"),
-            ("Esc", "Quit"),
+            ("↑ / ↓".into(), "Move selection"),
+            ("← / →".into(), "Move cursor"),
+            ("Ctrl+P / N".into(), "Move selection"),
+            ("Ctrl+D / U".into(), "Half page down/up"),
+            ("PgUp / PgDn".into(), "Jump by page"),
+            ("Home / End".into(), "Jump to first/last"),
+            ("Enter".into(), "Open viewer"),
+            ("Ctrl+O".into(), "Select and exit"),
+            ("Ctrl+W".into(), "Delete word"),
+            (keys.resume.help_label(), "Resume"),
+            (keys.fork.help_label(), "Fork resume"),
+            (keys.delete.help_label(), "Delete"),
+            ("Esc".into(), "Quit"),
         ]
     };
 
@@ -1019,7 +1026,7 @@ fn render_help_overlay(frame: &mut Frame, is_view_mode: bool, is_single_file_mod
                 Style::default().fg(Color::Rgb(78, 201, 176)),
             ),
             Span::styled(" │ ", Style::default().fg(Color::Rgb(60, 60, 60))),
-            Span::styled(*action, Style::default().fg(Color::White)),
+            Span::styled(action.to_string(), Style::default().fg(Color::White)),
         ]));
     }
 

@@ -1,3 +1,4 @@
+use crate::config::KeyBindings;
 use crate::debug_log;
 use crate::error::{AppError, Result};
 use crate::history::{
@@ -152,6 +153,8 @@ pub struct App {
     show_timing: bool,
     /// Whether the app is running in single file mode (direct input, no list)
     single_file_mode: bool,
+    /// Configurable keybindings
+    keys: KeyBindings,
 }
 
 impl App {
@@ -161,6 +164,7 @@ impl App {
         use_relative_time: bool,
         tool_display: ToolDisplayMode,
         show_thinking: bool,
+        keys: KeyBindings,
     ) -> Self {
         let searchable = search::precompute_search_text(&conversations);
         let filtered: Vec<usize> = (0..conversations.len()).collect();
@@ -182,6 +186,7 @@ impl App {
             show_thinking,
             show_timing: false,
             single_file_mode: false,
+            keys,
         }
     }
 
@@ -190,6 +195,7 @@ impl App {
         use_relative_time: bool,
         tool_display: ToolDisplayMode,
         show_thinking: bool,
+        keys: KeyBindings,
     ) -> Self {
         Self {
             conversations: Vec::new(),
@@ -207,6 +213,7 @@ impl App {
             show_thinking,
             show_timing: false,
             single_file_mode: false,
+            keys,
         }
     }
 
@@ -216,6 +223,7 @@ impl App {
         use_relative_time: bool,
         tool_display: ToolDisplayMode,
         show_thinking: bool,
+        keys: KeyBindings,
     ) -> Self {
         // Parse using the same parser as the main list
         let modified = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
@@ -263,7 +271,12 @@ impl App {
             show_thinking,
             show_timing: false,
             single_file_mode: true,
+            keys,
         }
+    }
+
+    pub fn keys(&self) -> &KeyBindings {
+        &self.keys
     }
 
     /// Append a batch of conversations during loading
@@ -755,6 +768,28 @@ impl App {
             return self.handle_search_typing_key(code);
         }
 
+        // Check configurable keybindings before the match block
+        if self.keys.delete.matches(code, modifiers) {
+            if !self.single_file_mode {
+                self.dialog_mode = DialogMode::ConfirmDelete;
+            }
+            return None;
+        }
+        if self.keys.resume.matches(code, modifiers) {
+            return if self.single_file_mode {
+                None
+            } else {
+                self.get_selected_path().map(Action::Resume)
+            };
+        }
+        if self.keys.fork.matches(code, modifiers) {
+            return if self.single_file_mode {
+                None
+            } else {
+                self.get_selected_path().map(Action::ForkResume)
+            };
+        }
+
         let state = match &mut self.app_mode {
             AppMode::View(s) => s,
             _ => return None,
@@ -973,32 +1008,6 @@ impl App {
                 None
             }
 
-            // Ctrl+X - delete (disabled in single file mode for security)
-            KeyCode::Char('x') if modifiers.contains(KeyModifiers::CONTROL) => {
-                if !self.single_file_mode {
-                    self.dialog_mode = DialogMode::ConfirmDelete;
-                }
-                None
-            }
-
-            // Ctrl+R - resume (disabled in single file mode)
-            KeyCode::Char('r') if modifiers.contains(KeyModifiers::CONTROL) => {
-                if self.single_file_mode {
-                    None
-                } else {
-                    self.get_selected_path().map(Action::Resume)
-                }
-            }
-
-            // Ctrl+F - fork-resume (disabled in single file mode)
-            KeyCode::Char('f') if modifiers.contains(KeyModifiers::CONTROL) => {
-                if self.single_file_mode {
-                    None
-                } else {
-                    self.get_selected_path().map(Action::ForkResume)
-                }
-            }
-
             // Ctrl+C - quit the app
             KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => Some(Action::Quit),
 
@@ -1136,6 +1145,20 @@ impl App {
             };
         }
 
+        // Check configurable keybindings before the match block
+        if self.keys.delete.matches(code, modifiers) {
+            if self.get_selected_path().is_some() {
+                self.dialog_mode = DialogMode::ConfirmDelete;
+            }
+            return None;
+        }
+        if self.keys.resume.matches(code, modifiers) {
+            return self.get_selected_path().map(Action::Resume);
+        }
+        if self.keys.fork.matches(code, modifiers) {
+            return self.get_selected_path().map(Action::ForkResume);
+        }
+
         // Normal handling when ready
         match code {
             KeyCode::Esc => Some(Action::Quit),
@@ -1191,19 +1214,6 @@ impl App {
             KeyCode::Char('u') if modifiers.contains(KeyModifiers::CONTROL) => {
                 self.select_half_page_up(viewport_height);
                 None
-            }
-            // Ctrl+X - delete conversation
-            KeyCode::Char('x') if modifiers.contains(KeyModifiers::CONTROL) => {
-                if self.get_selected_path().is_some() {
-                    self.dialog_mode = DialogMode::ConfirmDelete;
-                }
-                None
-            }
-            KeyCode::Char('r') if modifiers.contains(KeyModifiers::CONTROL) => {
-                self.get_selected_path().map(Action::Resume)
-            }
-            KeyCode::Char('f') if modifiers.contains(KeyModifiers::CONTROL) => {
-                self.get_selected_path().map(Action::ForkResume)
             }
             // Ctrl+O - select and exit (for scripting, --show-path)
             KeyCode::Char('o') if modifiers.contains(KeyModifiers::CONTROL) => {
@@ -1520,6 +1530,7 @@ pub fn run(
     use_relative_time: bool,
     tool_display: ToolDisplayMode,
     show_thinking: bool,
+    keys: KeyBindings,
 ) -> Result<Action> {
     // Set up panic hook to restore terminal
     let original_hook = std::panic::take_hook();
@@ -1535,6 +1546,7 @@ pub fn run(
         use_relative_time,
         tool_display,
         show_thinking,
+        keys,
     );
 
     loop {
@@ -1606,6 +1618,7 @@ pub fn run_with_loader(
     use_relative_time: bool,
     tool_display: ToolDisplayMode,
     show_thinking: bool,
+    keys: KeyBindings,
 ) -> Result<(Action, Vec<Conversation>)> {
     // Set up panic hook to restore terminal
     let original_hook = std::panic::take_hook();
@@ -1616,7 +1629,7 @@ pub fn run_with_loader(
     }));
 
     let mut guard = TerminalGuard::new()?;
-    let mut app = App::new_loading(use_relative_time, tool_display, show_thinking);
+    let mut app = App::new_loading(use_relative_time, tool_display, show_thinking, keys);
 
     loop {
         // Process all pending loader messages (non-blocking)
@@ -1726,6 +1739,7 @@ pub fn run_single_file(
     use_relative_time: bool,
     tool_display: ToolDisplayMode,
     show_thinking: bool,
+    keys: KeyBindings,
 ) -> Result<()> {
     // Set up panic hook to restore terminal
     let original_hook = std::panic::take_hook();
@@ -1736,7 +1750,7 @@ pub fn run_single_file(
     }));
 
     let mut guard = TerminalGuard::new()?;
-    let mut app = App::new_single_file(path, use_relative_time, tool_display, show_thinking);
+    let mut app = App::new_single_file(path, use_relative_time, tool_display, show_thinking, keys);
 
     loop {
         let frame_area = guard.terminal.get_frame().area();

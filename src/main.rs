@@ -63,6 +63,9 @@ fn run() -> Result<()> {
     let resume_config = config.resume.unwrap_or_default();
     let default_args = resume_config.default_args.as_deref().unwrap_or(&[]);
 
+    // Resolve keybindings
+    let keys = config::KeyBindings::from_config(config.keys);
+
     // Use positive names internally for clarity
     let show_tools = resolve_bool_setting(
         args.show_tools,
@@ -135,6 +138,7 @@ fn run() -> Result<()> {
             use_relative_time,
             tool_display,
             show_thinking,
+            keys,
         )?;
         return Ok(());
     }
@@ -146,7 +150,7 @@ fn run() -> Result<()> {
         // Global Search (-g) - use streaming loader for instant startup
         let rx = history::load_all_conversations_streaming(show_last, args.debug);
 
-        match tui::run_with_loader(rx, use_relative_time, tool_display, show_thinking)? {
+        match tui::run_with_loader(rx, use_relative_time, tool_display, show_thinking, keys)? {
             (tui::Action::Select(path), convs) => (convs, path),
             (tui::Action::Resume(path), convs) => {
                 let conv = convs.iter().find(|c| c.path == path);
@@ -197,6 +201,7 @@ fn run() -> Result<()> {
             use_relative_time,
             tool_display,
             show_thinking,
+            keys,
         )? {
             tui::Action::Select(path) => (conversations, path),
             tui::Action::Resume(path) => {
