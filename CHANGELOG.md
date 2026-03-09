@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.30 (2026-03-09)
+
+- Preview panel now shows the last messages by default instead of the first, so
+  you see the most recent context at a glance (use `--first` to revert)
+
 ## v0.1.29 (2026-03-09)
 
 - Added `--fork-session` flag to resume a conversation as a fork, creating a new
