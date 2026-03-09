@@ -358,6 +358,11 @@ pager = true
 # Default arguments to pass to claude command when resuming
 # Example: default_args = ["--dangerously-skip-permissions"]
 
+[keys]
+# Customize keybindings (default: ctrl+r, ctrl+f, ctrl+x)
+# Supports ctrl+<key> and alt+<key> combinations
+# fork = "alt+f"
+
 EOF
 ```
 
@@ -391,6 +396,15 @@ EOF
   `--dangerously-skip-permissions` that you want applied every time you resume.
   Example: `default_args = ["--dangerously-skip-permissions", "--verbose"]`
 
+#### Key bindings
+
+Customize the keybindings for resume, fork, and delete actions. Values are
+key combinations like `"ctrl+r"` or `"alt+f"`. Only single-character keys with
+`ctrl+` or `alt+` modifiers are supported.
+
+- `resume` (string): Resume conversation (default: `"ctrl+r"`)
+- `fork` (string): Fork and resume conversation (default: `"ctrl+f"`)
+- `delete` (string): Delete conversation (default: `"ctrl+x"`)
 
 ### Overriding config
 
