@@ -84,9 +84,8 @@ preview.
 | `N`            | Previous search match                              |
 | `t`            | Cycle tools: off/truncated/full                    |
 | `T`            | Toggle thinking                                    |
-| `c`            | Copy focused message to clipboard                  |
 | `e`            | Export conversation to file                        |
-| `y`            | Copy conversation to clipboard                     |
+| `y`            | Copy to clipboard (message if selected, else menu) |
 | `p`            | Show file path                                     |
 | `Y`            | Copy file path to clipboard                        |
 | `I`            | Copy session ID to clipboard                       |

@@ -856,12 +856,6 @@ impl App {
                 None
             }
 
-            // Copy current message to clipboard
-            KeyCode::Char('c') if !modifiers.contains(KeyModifiers::CONTROL) => {
-                self.copy_focused_message(viewport_height);
-                None
-            }
-
             // Scroll down half page
             KeyCode::Char('d') if !modifiers.contains(KeyModifiers::CONTROL) => {
                 state.scroll_offset = (state.scroll_offset + viewport_height / 2).min(max_scroll);
@@ -1005,9 +999,20 @@ impl App {
                 None
             }
 
-            // Open yank menu (copy to clipboard)
+            // Yank: copy message if in nav mode, otherwise open yank menu
             KeyCode::Char('y') => {
-                self.dialog_mode = DialogMode::YankMenu { selected: 0 };
+                let nav_active = matches!(
+                    self.app_mode,
+                    AppMode::View(ViewState {
+                        message_nav_active: true,
+                        ..
+                    })
+                );
+                if nav_active {
+                    self.copy_focused_message(viewport_height);
+                } else {
+                    self.dialog_mode = DialogMode::YankMenu { selected: 0 };
+                }
                 None
             }
 
