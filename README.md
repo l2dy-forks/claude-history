@@ -96,6 +96,19 @@ preview.
 | `q` / `Esc`    | Return to list (or quit in direct file input mode) |
 | `Ctrl+C`       | Quit                                               |
 
+### Message navigation
+
+Press `J`/`K` or `[`/`]` to enter message navigation mode. A teal `▌` marker
+appears in the gutter showing which message is focused. While in this mode:
+
+- `J` / `]` — jump to next message
+- `K` / `[` — jump to previous message
+- `y` — copy the focused message to clipboard (raw markdown)
+- `Esc` — exit message navigation mode
+
+Searching with `/` also activates message navigation, focusing the message
+containing each match as you move through results with `n`/`N`.
+
 ### Search
 
 Search uses fuzzy word matching with the following features:
@@ -103,10 +116,15 @@ Search uses fuzzy word matching with the following features:
 - **Case-insensitive**: "config" matches "CONFIG"
 - **Underscore as separator**: "api key" matches "API_KEY"
 - **Prefix matching**: "auth" matches "authentication", "authorize"
-- **Word boundary**: matches start at word boundaries, so "red" won't match inside "fired"
-- **Multi-word AND logic**: all query words must match, each word is highlighted individually
-- **Tool output indexing**: search matches content inside tool results (bash output, file contents, grep results, etc.), not just user/assistant text
-- **UUID lookup**: paste a full session UUID (e.g. `e7d318b1-4274-4ee2-a341-e94893b5df49`) to jump directly to that session, even if it belongs to a different project
+- **Word boundary**: matches start at word boundaries, so "red" won't match
+  inside "fired"
+- **Multi-word AND logic**: all query words must match, each word is highlighted
+  individually
+- **Tool output indexing**: search matches content inside tool results (bash
+  output, file contents, grep results, etc.), not just user/assistant text
+- **UUID lookup**: paste a full session UUID (e.g.
+  `e7d318b1-4274-4ee2-a341-e94893b5df49`) to jump directly to that session, even
+  if it belongs to a different project
 
 Results are ranked by recency, so recent conversations appear first.
 
@@ -191,9 +209,9 @@ to start in full mode, or `--no-tools` to start with tools hidden.
 
 Extended thinking models (like Claude Sonnet 4.5) include reasoning steps in
 their output. When Claude uses the Task tool to spawn subagents, the internal
-tool calls and messages within those subagents are also hidden by default.
-Use `--show-thinking` (or press `T` in the TUI) to display both thinking blocks
-and subagent internals. Subagent messages appear dimmed with a `↳` prefix to
+tool calls and messages within those subagents are also hidden by default. Use
+`--show-thinking` (or press `T` in the TUI) to display both thinking blocks and
+subagent internals. Subagent messages appear dimmed with a `↳` prefix to
 distinguish them from top-level conversation entries.
 
 ### Resuming conversations
@@ -201,8 +219,8 @@ distinguish them from top-level conversation entries.
 If you want to continue a conversation, launch `claude-history` with `--resume`
 and it will hand off to `claude --resume <conversation-id>`.
 
-To fork a conversation (creating a new session branching from the original),
-use `--resume --fork-session` or press `Ctrl+F` in the TUI. This passes
+To fork a conversation (creating a new session branching from the original), use
+`--resume --fork-session` or press `Ctrl+F` in the TUI. This passes
 `--fork-session` to the `claude` command.
 
 When forking from `--global` mode and the conversation belongs to a different
@@ -382,8 +400,7 @@ EOF
 - `last` (boolean): Show last messages instead of first in TUI preview (default:
   false)
 - `show_thinking` (boolean): Show thinking blocks and subagent internals in
-  conversation output
-  (default: false)
+  conversation output (default: false)
 - `plain` (boolean): Output plain text without ledger formatting (default:
   false)
 - `pager` (boolean): Pipe output through a pager for scrolling (default: true
@@ -398,8 +415,8 @@ EOF
 
 #### Key bindings
 
-Customize the keybindings for resume, fork, and delete actions. Values are
-key combinations like `"ctrl+r"` or `"alt+f"`. Only single-character keys with
+Customize the keybindings for resume, fork, and delete actions. Values are key
+combinations like `"ctrl+r"` or `"alt+f"`. Only single-character keys with
 `ctrl+` or `alt+` modifiers are supported.
 
 - `resume` (string): Resume conversation (default: `"ctrl+r"`)
