@@ -428,6 +428,9 @@ fn render_assistant_message(
     if options.show_thinking && nested_label.is_none() {
         for block in &message.content {
             if let ContentBlock::Thinking { thinking, .. } = block {
+                if thinking.is_empty() {
+                    continue;
+                }
                 let md_lines = render_markdown_to_lines(thinking, options.content_width);
                 let styled_lines = apply_thinking_style(md_lines);
                 // Pass timestamp if no previous block consumed it

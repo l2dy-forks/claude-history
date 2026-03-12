@@ -445,7 +445,9 @@ fn generate_ledger(path: &Path, options: ExportOptions) -> std::io::Result<Strin
                                 );
                                 output.push('\n');
                             }
-                            ContentBlock::Thinking { thinking, .. } if options.show_thinking => {
+                            ContentBlock::Thinking { thinking, .. }
+                                if options.show_thinking && !thinking.is_empty() =>
+                            {
                                 let rendered =
                                     crate::markdown::render_markdown_plain(thinking, content_width);
                                 let rendered = rendered.trim_end();

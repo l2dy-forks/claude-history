@@ -728,6 +728,9 @@ fn process_assistant_message<F: OutputFormatter>(
     // Print thinking blocks (skip for subagents)
     if show_thinking && agent_id.is_none() {
         for thought in formatted.thinking_steps {
+            if thought.is_empty() {
+                continue;
+            }
             formatter.format_thinking(thought);
             printed_content = true;
         }
