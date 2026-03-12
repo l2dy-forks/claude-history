@@ -1476,31 +1476,29 @@ fn build_context_segments(
         return None;
     }
 
-    // Normalize full_text once, reuse for all term lookups
-    let full_normalized = NormalizedText::new(full_text);
-    let preview_normalized = NormalizedText::new(preview);
-
+    // Use lazy scanner to avoid allocating NormalizedText over large full_text strings.
     // Prioritize showing terms NOT already visible in the preview.
     // For each term, check if it has matches in the preview; if not,
-    // find its first match in full_text and use that for context.
+    // find its first match in full_text using the lazy scanner.
     let terms: Vec<&str> = query.split_whitespace().collect();
     let mut missing_term_matches: Vec<(usize, usize)> = Vec::new();
 
     for term in &terms {
-        if !preview_normalized.find_term_ranges(term).is_empty() {
+        if find_first_normalized_match(preview, term).is_some() {
             continue;
         }
-        // Term not in preview — find first match in full_text
-        if let Some(first) = full_normalized.find_term_ranges(term).into_iter().next() {
+        // Term not in preview — find first match in full_text lazily
+        if let Some(first) = find_first_normalized_match(full_text, term) {
             missing_term_matches.push(first);
         }
     }
 
     // If all terms are already in preview, fall back to showing additional
-    // matches beyond what the preview covers (original behavior)
+    // matches beyond what the preview covers (original behavior).
+    // Use consistent counting (both lazy scanner) to avoid merge mismatches.
     let raw_hidden = if missing_term_matches.is_empty() {
-        let preview_match_count = preview_normalized.find_all_ranges(query).len();
-        let all_matches = full_normalized.find_all_ranges(query);
+        let preview_match_count = find_all_normalized_matches(preview, &terms).len();
+        let all_matches = find_all_normalized_matches(full_text, &terms);
         if all_matches.len() <= preview_match_count {
             return None;
         }
@@ -1644,6 +1642,131 @@ fn sanitize_preview(text: &str) -> String {
     result.trim().to_string()
 }
 
+/// Lazy, zero-allocation normalized search over a string.
+/// Scans char-by-char without building intermediate Vecs, short-circuits on first match.
+/// Used for large strings (full_text) where NormalizedText would allocate too much.
+fn find_first_normalized_match(text: &str, term: &str) -> Option<(usize, usize)> {
+    let term_chars: Vec<char> = term.chars().collect();
+    if term_chars.is_empty() {
+        return None;
+    }
+    let query_starts_alnum = term_chars[0].is_alphanumeric();
+    let mut prev_is_alnum = false;
+    let mut iter = text.char_indices().peekable();
+
+    while let Some(&(byte_start, ch)) = iter.peek() {
+        let norm_ch = if ch == '_' || ch == '-' || ch == '/' {
+            ' '
+        } else {
+            ch.to_lowercase().next().unwrap_or(ch)
+        };
+        let is_alnum = ch.is_alphanumeric();
+        let valid_start = !query_starts_alnum || !prev_is_alnum;
+
+        if valid_start && norm_ch == term_chars[0] {
+            // Try to match the full term from here
+            let mut lookahead = iter.clone();
+            lookahead.next(); // skip current char
+            let mut matched = true;
+            let mut end_byte = byte_start + ch.len_utf8();
+
+            for &q_char in term_chars.iter().skip(1) {
+                if let Some(&(_, next_ch)) = lookahead.peek() {
+                    let next_norm = if next_ch == '_' || next_ch == '-' || next_ch == '/' {
+                        ' '
+                    } else {
+                        next_ch.to_lowercase().next().unwrap_or(next_ch)
+                    };
+                    end_byte += next_ch.len_utf8();
+                    lookahead.next();
+                    if next_norm != q_char {
+                        matched = false;
+                        break;
+                    }
+                } else {
+                    matched = false;
+                    break;
+                }
+            }
+
+            if matched {
+                return Some((byte_start, end_byte));
+            }
+        }
+
+        prev_is_alnum = is_alnum;
+        iter.next();
+    }
+    None
+}
+
+/// Find all normalized matches for multiple terms in text, sorted by position.
+/// Uses lazy scanning — avoids building NormalizedText.
+fn find_all_normalized_matches(text: &str, terms: &[&str]) -> Vec<(usize, usize)> {
+    let mut all_matches = Vec::new();
+    for term in terms {
+        let term_chars: Vec<char> = term.chars().collect();
+        if term_chars.is_empty() {
+            continue;
+        }
+        let query_starts_alnum = term_chars[0].is_alphanumeric();
+        let mut prev_is_alnum = false;
+        let mut iter = text.char_indices().peekable();
+
+        while let Some(&(byte_start, ch)) = iter.peek() {
+            let norm_ch = if ch == '_' || ch == '-' || ch == '/' {
+                ' '
+            } else {
+                ch.to_lowercase().next().unwrap_or(ch)
+            };
+            let is_alnum = ch.is_alphanumeric();
+            let valid_start = !query_starts_alnum || !prev_is_alnum;
+
+            if valid_start && norm_ch == term_chars[0] {
+                let mut lookahead = iter.clone();
+                lookahead.next();
+                let mut matched = true;
+                let mut end_byte = byte_start + ch.len_utf8();
+
+                for &q_char in term_chars.iter().skip(1) {
+                    if let Some(&(_, next_ch)) = lookahead.peek() {
+                        let next_norm = if next_ch == '_' || next_ch == '-' || next_ch == '/' {
+                            ' '
+                        } else {
+                            next_ch.to_lowercase().next().unwrap_or(next_ch)
+                        };
+                        end_byte += next_ch.len_utf8();
+                        lookahead.next();
+                        if next_norm != q_char {
+                            matched = false;
+                            break;
+                        }
+                    } else {
+                        matched = false;
+                        break;
+                    }
+                }
+
+                if matched {
+                    all_matches.push((byte_start, end_byte));
+                    // Skip past this match
+                    for _ in 0..term_chars.len().saturating_sub(1) {
+                        iter.next();
+                    }
+                    prev_is_alnum = true;
+                    iter.next();
+                    continue;
+                }
+            }
+
+            prev_is_alnum = is_alnum;
+            iter.next();
+        }
+    }
+    all_matches.sort_unstable_by_key(|m| m.0);
+    all_matches
+}
+
 /// Pre-normalized text with char-to-byte mapping for efficient repeated searches.
 struct NormalizedText {
     norm_chars: Vec<char>,
@@ -1719,20 +1842,43 @@ impl NormalizedText {
             all_matches.extend(self.find_term_ranges(term));
         }
 
-        // Sort and merge overlapping ranges
+        // Sort and merge overlapping or separator-adjacent ranges.
+        // This ensures "run_with_loader" highlights as one span including the underscores
+        // when searching "run with loader" (underscores normalized to spaces).
         all_matches.sort_unstable_by_key(|m| m.0);
         let mut merged: Vec<(usize, usize)> = Vec::with_capacity(all_matches.len());
         for m in all_matches {
-            if let Some(last) = merged.last_mut()
-                && m.0 <= last.1
-            {
-                last.1 = last.1.max(m.1);
-                continue;
+            if let Some(last) = merged.last_mut() {
+                if m.0 <= last.1 {
+                    // Overlapping — merge
+                    last.1 = last.1.max(m.1);
+                    continue;
+                }
+                // Check if the gap between ranges is only separators (_, -, /)
+                let gap = &self.norm_chars[..];
+                let gap_start = self.byte_to_char_index(last.1);
+                let gap_end = self.byte_to_char_index(m.0);
+                if gap_start < gap_end
+                    && gap[gap_start..gap_end]
+                        .iter()
+                        .all(|c| *c == ' ' || *c == '_' || *c == '-' || *c == '/')
+                {
+                    last.1 = m.1;
+                    continue;
+                }
             }
             merged.push(m);
         }
 
         merged
+    }
+
+    /// Convert a byte offset in the original text to a char index in norm_chars
+    fn byte_to_char_index(&self, byte_offset: usize) -> usize {
+        self.char_map
+            .iter()
+            .position(|(start, _)| *start >= byte_offset)
+            .unwrap_or(self.char_map.len())
     }
 }
 
@@ -1887,10 +2033,9 @@ mod tests {
         );
         let info = span_info(&spans, hl);
         let highlighted: Vec<_> = info.iter().filter(|(_, h)| *h).collect();
-        // Per-word: "red" and "team" highlighted separately
-        assert_eq!(highlighted.len(), 2);
-        assert_eq!(highlighted[0].0, "red");
-        assert_eq!(highlighted[1].0, "team");
+        // Adjacent words separated by space merge into one highlight span
+        assert_eq!(highlighted.len(), 1);
+        assert_eq!(highlighted[0].0, "red team");
     }
 
     #[test]
@@ -1910,13 +2055,12 @@ mod tests {
     fn highlight_underscore_normalization() {
         let base = Style::default();
         let hl = Style::default().fg(Color::Yellow);
-        // Query "red team" matches "red" and "team" in "red_team" separately
+        // Query "red team" matches "red_team" as one span including the underscore
         let spans = highlight_text("config for red_team setup", "red team", base, hl);
         let info = span_info(&spans, hl);
         let highlighted: Vec<_> = info.iter().filter(|(_, h)| *h).collect();
-        assert_eq!(highlighted.len(), 2);
-        assert_eq!(highlighted[0].0, "red");
-        assert_eq!(highlighted[1].0, "team");
+        assert_eq!(highlighted.len(), 1);
+        assert_eq!(highlighted[0].0, "red_team");
     }
 
     #[test]
@@ -1953,10 +2097,9 @@ mod tests {
     fn find_normalized_ranges_phrase() {
         let text = "hello red team world";
         let ranges = find_normalized_match_ranges(text, "red team");
-        // Per-word: "red" and "team" matched separately
-        assert_eq!(ranges.len(), 2);
-        assert_eq!(&text[ranges[0].0..ranges[0].1], "red");
-        assert_eq!(&text[ranges[1].0..ranges[1].1], "team");
+        // Adjacent words separated by space merge into one range
+        assert_eq!(ranges.len(), 1);
+        assert_eq!(&text[ranges[0].0..ranges[0].1], "red team");
     }
 
     #[test]
@@ -1974,10 +2117,9 @@ mod tests {
     fn find_normalized_ranges_underscore() {
         let text = "set red_team flag";
         let ranges = find_normalized_match_ranges(text, "red team");
-        // Per-word: "red" and "team" matched separately (underscore is between them)
-        assert_eq!(ranges.len(), 2);
-        assert_eq!(&text[ranges[0].0..ranges[0].1], "red");
-        assert_eq!(&text[ranges[1].0..ranges[1].1], "team");
+        // Adjacent words separated by underscore merge into one range
+        assert_eq!(ranges.len(), 1);
+        assert_eq!(&text[ranges[0].0..ranges[0].1], "red_team");
     }
 
     #[test]

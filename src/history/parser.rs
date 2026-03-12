@@ -4,7 +4,10 @@
 //! conversation metadata like preview text, message counts, and working directory.
 
 use super::{Conversation, ParseError};
-use crate::claude::{LogEntry, TokenUsage, extract_text_from_assistant, extract_text_from_user};
+use crate::claude::{
+    LogEntry, TokenUsage, extract_search_text_from_assistant, extract_search_text_from_user,
+    extract_text_from_assistant, extract_text_from_user,
+};
 use crate::cli::DebugLevel;
 use crate::debug;
 use crate::error::Result;
@@ -12,6 +15,10 @@ use chrono::{DateTime, Local};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
+
+/// Maximum characters for full_text search index per conversation.
+/// Prevents search/highlighting lag from conversations with large tool outputs.
+const MAX_FULL_TEXT_CHARS: usize = 256 * 1024;
 use std::path::PathBuf;
 use std::time::SystemTime;
 
@@ -93,26 +100,32 @@ pub(crate) fn process_conversation_reader<R: BufRead>(
                             extracted_cwd = Some(PathBuf::from(cwd_str));
                         }
 
-                        let text = extract_text_from_user(&message);
-                        if text.is_empty() {
+                        let preview_text = extract_text_from_user(&message);
+                        let search_text = extract_search_text_from_user(&message);
+
+                        if preview_text.is_empty() && search_text.is_empty() {
                             continue;
                         }
 
-                        user_messages.push(text.clone());
+                        if !preview_text.is_empty() {
+                            user_messages.push(preview_text.clone());
+                        }
 
-                        if is_clear_metadata_message(&text) {
+                        if !preview_text.is_empty() && is_clear_metadata_message(&preview_text) {
                             continue;
                         }
 
-                        all_parts.push(text.clone());
+                        if !search_text.is_empty() {
+                            all_parts.push(search_text);
+                        }
 
                         // Check if this is a warmup message (first user message is "Warmup")
-                        let is_warmup = !seen_real_user_message && text.trim() == "Warmup";
+                        let is_warmup = !seen_real_user_message && preview_text.trim() == "Warmup";
                         if is_warmup {
                             skip_next_assistant = true;
-                        } else {
+                        } else if !preview_text.is_empty() {
                             message_count += 1;
-                            preview_parts.push(text);
+                            preview_parts.push(preview_text);
                             seen_real_user_message = true;
                         }
                     }
@@ -151,18 +164,20 @@ pub(crate) fn process_conversation_reader<R: BufRead>(
                             }
                         }
 
-                        let text = extract_text_from_assistant(&message);
-                        if !text.is_empty() {
-                            all_parts.push(text.clone());
+                        let preview_text = extract_text_from_assistant(&message);
+                        let search_text = extract_search_text_from_assistant(&message);
 
-                            // Skip this assistant message if it follows a warmup user message
-                            if skip_next_assistant {
-                                skip_next_assistant = false;
-                            } else if seen_real_user_message {
-                                // Only add assistant messages to preview after we've seen a real user message
-                                message_count += 1;
-                                preview_parts.push(text);
-                            }
+                        if !search_text.is_empty() {
+                            all_parts.push(search_text);
+                        }
+
+                        // Skip this assistant message if it follows a warmup user message
+                        if skip_next_assistant {
+                            skip_next_assistant = false;
+                        } else if seen_real_user_message && !preview_text.is_empty() {
+                            // Only add assistant messages to preview after we've seen a real user message
+                            message_count += 1;
+                            preview_parts.push(preview_text);
                         }
                     }
                     LogEntry::Summary { summary } => {
@@ -272,6 +287,9 @@ pub(crate) fn process_conversation_reader<R: BufRead>(
     let preview = normalize_whitespace(&preview);
     let full_text = normalize_whitespace(&full_text);
 
+    // Cap full_text to prevent search/highlighting lag from large tool outputs
+    let full_text = truncate_to_char_boundary(&full_text, MAX_FULL_TEXT_CHARS);
+
     // Sum token usage from deduplicated messages (all token types)
     let total_tokens: u64 = token_usage_by_msg
         .values()
@@ -376,6 +394,18 @@ pub(crate) fn is_clear_only_conversation(user_messages: &[String]) -> bool {
 /// Normalize whitespace in a string
 pub(crate) fn normalize_whitespace(s: &str) -> String {
     s.split_whitespace().collect::<Vec<&str>>().join(" ")
+}
+
+/// Truncate a string to at most `max` bytes, on a char boundary
+fn truncate_to_char_boundary(s: &str, max: usize) -> String {
+    if s.len() <= max {
+        return s.to_owned();
+    }
+    let mut end = max;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    s[..end].to_owned()
 }
 
 #[cfg(test)]
@@ -957,5 +987,98 @@ mod tests {
 
         let conv = parse_jsonl(&content).unwrap().unwrap();
         assert!(conv.custom_title.is_none(), "Should have no custom title");
+    }
+
+    // === ToolResult search indexing ===
+
+    /// Helper to create a user message with tool result (string content)
+    fn user_msg_with_tool_result(text: &str, tool_output: &str) -> String {
+        format!(
+            r#"{{"type": "user", "timestamp": "2024-01-01T00:00:00Z", "message": {{"role": "user", "content": [{{"type": "text", "text": "{}"}}, {{"type": "tool_result", "tool_use_id": "toolu_123", "content": "{}"}}]}}}}"#,
+            text, tool_output
+        )
+    }
+
+    /// Helper to create a user message with tool result (array-of-blocks content)
+    fn user_msg_with_tool_result_blocks(text: &str, tool_output: &str) -> String {
+        format!(
+            r#"{{"type": "user", "timestamp": "2024-01-01T00:00:00Z", "message": {{"role": "user", "content": [{{"type": "text", "text": "{}"}}, {{"type": "tool_result", "tool_use_id": "toolu_123", "content": [{{"type": "text", "text": "{}"}}]}}]}}}}"#,
+            text, tool_output
+        )
+    }
+
+    #[test]
+    fn tool_result_string_included_in_full_text() {
+        let content = [
+            user_msg_with_tool_result("run this", "command output here"),
+            assistant_msg("Done"),
+        ]
+        .join("\n");
+
+        let conv = parse_jsonl(&content).unwrap().unwrap();
+        assert!(
+            conv.full_text.contains("command output here"),
+            "Tool result string should be in full_text for search: {}",
+            conv.full_text
+        );
+    }
+
+    #[test]
+    fn tool_result_array_included_in_full_text() {
+        let content = [
+            user_msg_with_tool_result_blocks("check file", "file contents xyz"),
+            assistant_msg("Got it"),
+        ]
+        .join("\n");
+
+        let conv = parse_jsonl(&content).unwrap().unwrap();
+        assert!(
+            conv.full_text.contains("file contents xyz"),
+            "Tool result array blocks should be in full_text: {}",
+            conv.full_text
+        );
+    }
+
+    #[test]
+    fn tool_result_not_in_preview() {
+        let content = [
+            user_msg_with_tool_result(
+                "run this",
+                "verbose tool output should not appear in preview",
+            ),
+            assistant_msg("Done"),
+        ]
+        .join("\n");
+
+        let conv = parse_jsonl(&content).unwrap().unwrap();
+        assert!(
+            !conv.preview.contains("verbose tool output"),
+            "Tool result should NOT be in preview: {}",
+            conv.preview
+        );
+        assert!(
+            conv.preview.contains("run this"),
+            "Text blocks should still be in preview: {}",
+            conv.preview
+        );
+    }
+
+    #[test]
+    fn clear_conversation_still_filtered_with_tool_results() {
+        let content = [
+            user_msg(
+                "Caveat: The messages below were generated by the user while running local commands.",
+                None,
+            ),
+            user_msg("<command-name>/clear</command-name>", None),
+            user_msg("<local-command-stdout></local-command-stdout>", None),
+        ]
+        .join("\n");
+
+        let result = parse_jsonl(&content).unwrap();
+        assert!(
+            result.is_none(),
+            "Clear-only conversation should still be filtered"
+        );
     }
 }
