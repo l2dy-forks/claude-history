@@ -6,7 +6,7 @@ use crate::history::{
 };
 use crate::tui::search::{self, SearchableConversation};
 use crate::tui::ui;
-use crate::tui::viewer::ToolDisplayMode;
+use crate::tui::viewer::{MessageRange, ToolDisplayMode};
 use chrono::Local;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use crossterm::terminal::{self, EnterAlternateScreen, LeaveAlternateScreen};
@@ -84,6 +84,12 @@ pub struct ViewState {
     pub search_matches: Vec<usize>,
     /// Current match index
     pub current_match: usize,
+    /// Message boundary ranges from rendering
+    pub message_ranges: Vec<MessageRange>,
+    /// Currently focused message index
+    pub focused_message: Option<usize>,
+    /// Whether message navigation mode is active (shows gutter indicator)
+    pub message_nav_active: bool,
 }
 
 /// Search mode within view
@@ -257,6 +263,9 @@ impl App {
                 search_query: String::new(),
                 search_matches: Vec::new(),
                 current_match: 0,
+                message_ranges: Vec::new(),
+                focused_message: None,
+                message_nav_active: false,
             }),
             status_message: None,
             tool_display,
@@ -788,6 +797,13 @@ impl App {
         match code {
             // Exit view mode (or clear search if active)
             KeyCode::Esc => {
+                // Exit message nav mode first
+                if let AppMode::View(ref mut state) = self.app_mode
+                    && state.message_nav_active
+                {
+                    state.message_nav_active = false;
+                    return None;
+                }
                 // If search is active, clear it first before exiting view
                 if let AppMode::View(ref mut state) = self.app_mode
                     && state.search_mode == ViewSearchMode::Active
@@ -817,19 +833,39 @@ impl App {
             // Scroll down one line
             KeyCode::Down | KeyCode::Char('j') => {
                 state.scroll_offset = (state.scroll_offset + 1).min(max_scroll);
+                self.sync_focus_after_scroll(viewport_height);
                 None
             }
 
             // Scroll up one line
             KeyCode::Up | KeyCode::Char('k') => {
                 state.scroll_offset = state.scroll_offset.saturating_sub(1);
+                self.sync_focus_after_scroll(viewport_height);
+                None
+            }
+
+            // Jump to next message
+            KeyCode::Char('J') | KeyCode::Char(']') => {
+                self.focus_next_message(viewport_height);
+                None
+            }
+
+            // Jump to previous message
+            KeyCode::Char('K') | KeyCode::Char('[') => {
+                self.focus_prev_message(viewport_height);
+                None
+            }
+
+            // Copy current message to clipboard
+            KeyCode::Char('c') if !modifiers.contains(KeyModifiers::CONTROL) => {
+                self.copy_focused_message(viewport_height);
                 None
             }
 
             // Scroll down half page
             KeyCode::Char('d') if !modifiers.contains(KeyModifiers::CONTROL) => {
-                let half_page = viewport_height / 2;
-                state.scroll_offset = (state.scroll_offset + half_page).min(max_scroll);
+                state.scroll_offset = (state.scroll_offset + viewport_height / 2).min(max_scroll);
+                self.sync_focus_after_scroll(viewport_height);
                 None
             }
 
@@ -837,30 +873,35 @@ impl App {
             KeyCode::Char('u') if !modifiers.contains(KeyModifiers::CONTROL) => {
                 let half_page = viewport_height / 2;
                 state.scroll_offset = state.scroll_offset.saturating_sub(half_page);
+                self.sync_focus_after_scroll(viewport_height);
                 None
             }
 
             // Page down
             KeyCode::PageDown => {
                 state.scroll_offset = (state.scroll_offset + viewport_height).min(max_scroll);
+                self.sync_focus_after_scroll(viewport_height);
                 None
             }
 
             // Page up
             KeyCode::PageUp => {
                 state.scroll_offset = state.scroll_offset.saturating_sub(viewport_height);
+                self.sync_focus_after_scroll(viewport_height);
                 None
             }
 
             // Jump to top
             KeyCode::Char('g') | KeyCode::Home => {
                 state.scroll_offset = 0;
+                self.sync_focus_after_scroll(viewport_height);
                 None
             }
 
             // Jump to bottom
             KeyCode::Char('G') | KeyCode::End => {
                 state.scroll_offset = max_scroll;
+                self.sync_focus_after_scroll(viewport_height);
                 None
             }
 
@@ -978,8 +1019,8 @@ impl App {
 
             // Ctrl+D - half page down (vim-style, same as 'd')
             KeyCode::Char('d') if modifiers.contains(KeyModifiers::CONTROL) => {
-                let half_page = viewport_height / 2;
-                state.scroll_offset = (state.scroll_offset + half_page).min(max_scroll);
+                state.scroll_offset = (state.scroll_offset + viewport_height / 2).min(max_scroll);
+                self.sync_focus_after_scroll(viewport_height);
                 None
             }
 
@@ -987,6 +1028,7 @@ impl App {
             KeyCode::Char('u') if modifiers.contains(KeyModifiers::CONTROL) => {
                 let half_page = viewport_height / 2;
                 state.scroll_offset = state.scroll_offset.saturating_sub(half_page);
+                self.sync_focus_after_scroll(viewport_height);
                 None
             }
 
@@ -1277,12 +1319,17 @@ impl App {
         };
 
         match render_conversation(&path, &options) {
-            Ok(rendered_lines) => {
-                let total_lines = rendered_lines.len();
+            Ok(rendered) => {
+                let total_lines = rendered.lines.len();
+                let first_msg = if rendered.messages.is_empty() {
+                    None
+                } else {
+                    Some(0)
+                };
                 self.app_mode = AppMode::View(ViewState {
                     conversation_path: path,
                     scroll_offset: 0,
-                    rendered_lines,
+                    rendered_lines: rendered.lines,
                     total_lines,
                     tool_display: self.tool_display,
                     show_thinking: self.show_thinking,
@@ -1292,6 +1339,9 @@ impl App {
                     search_query: String::new(),
                     search_matches: Vec::new(),
                     current_match: 0,
+                    message_ranges: rendered.messages,
+                    focused_message: first_msg,
+                    message_nav_active: false,
                 });
             }
             Err(e) => {
@@ -1336,7 +1386,9 @@ impl App {
             // Jump to first match if any
             if !state.search_matches.is_empty() {
                 state.current_match = 0;
-                state.scroll_offset = state.search_matches[0];
+                let match_line = state.search_matches[0];
+                state.scroll_offset = match_line;
+                Self::focus_message_at_line(state, match_line);
             }
         }
     }
@@ -1355,6 +1407,7 @@ impl App {
             {
                 state.scroll_offset = match_line;
             }
+            Self::focus_message_at_line(state, match_line);
         }
     }
 
@@ -1375,6 +1428,7 @@ impl App {
             {
                 state.scroll_offset = match_line;
             }
+            Self::focus_message_at_line(state, match_line);
         }
     }
 
@@ -1417,10 +1471,29 @@ impl App {
                 content_width: state.content_width,
             };
 
-            if let Ok(lines) = render_conversation(&state.conversation_path, &options) {
+            if let Ok(rendered) = render_conversation(&state.conversation_path, &options) {
                 let old_scroll = state.scroll_offset;
-                state.total_lines = lines.len();
-                state.rendered_lines = lines;
+                // Preserve focus across re-render by saving the entry_index
+                let old_entry_index = state
+                    .focused_message
+                    .and_then(|i| state.message_ranges.get(i))
+                    .map(|m| m.entry_index);
+
+                state.total_lines = rendered.lines.len();
+                state.rendered_lines = rendered.lines;
+                state.message_ranges = rendered.messages;
+
+                // Restore focused message by entry_index
+                state.focused_message = old_entry_index.and_then(|old_idx| {
+                    state
+                        .message_ranges
+                        .iter()
+                        .position(|m| m.entry_index == old_idx)
+                });
+                // If old focus not found, default to first message
+                if state.focused_message.is_none() && !state.message_ranges.is_empty() {
+                    state.focused_message = Some(0);
+                }
 
                 // Clamp scroll offset to new content bounds
                 let max_scroll = state.total_lines.saturating_sub(viewport_height);
@@ -1445,6 +1518,156 @@ impl App {
                             state.current_match.min(state.search_matches.len() - 1);
                     }
                 }
+            }
+        }
+    }
+
+    /// Jump to the next message (activates message nav mode)
+    fn focus_next_message(&mut self, viewport_height: usize) {
+        if let AppMode::View(ref mut state) = self.app_mode {
+            if state.message_ranges.is_empty() {
+                return;
+            }
+            // On first activation, sync focus to current scroll position
+            if !state.message_nav_active {
+                state.message_nav_active = true;
+                Self::sync_focus_to_scroll(state, viewport_height);
+            }
+            let next = match state.focused_message {
+                Some(i) if i + 1 < state.message_ranges.len() => i + 1,
+                Some(i) => i, // already at last
+                None => 0,
+            };
+            state.focused_message = Some(next);
+            Self::ensure_message_visible(state, viewport_height);
+        }
+    }
+
+    /// Jump to the previous message (activates message nav mode)
+    fn focus_prev_message(&mut self, viewport_height: usize) {
+        if let AppMode::View(ref mut state) = self.app_mode {
+            if state.message_ranges.is_empty() {
+                return;
+            }
+            // On first activation, sync focus to current scroll position
+            if !state.message_nav_active {
+                state.message_nav_active = true;
+                Self::sync_focus_to_scroll(state, viewport_height);
+            }
+            let prev = match state.focused_message {
+                Some(i) if i > 0 => i - 1,
+                Some(i) => i, // already at first
+                None => 0,
+            };
+            state.focused_message = Some(prev);
+            Self::ensure_message_visible(state, viewport_height);
+        }
+    }
+
+    /// Focus the message containing the given line index, activating nav mode
+    fn focus_message_at_line(state: &mut ViewState, line_idx: usize) {
+        let found = state
+            .message_ranges
+            .iter()
+            .position(|m| line_idx >= m.start_line && line_idx < m.end_line);
+        if let Some(idx) = found {
+            state.message_nav_active = true;
+            state.focused_message = Some(idx);
+        }
+    }
+
+    /// Sync focus after a scroll operation (only when message nav is active)
+    fn sync_focus_after_scroll(&mut self, viewport_height: usize) {
+        if let AppMode::View(ref mut state) = self.app_mode
+            && state.message_nav_active
+        {
+            Self::sync_focus_to_scroll(state, viewport_height);
+        }
+    }
+
+    /// Sync focused message to the current scroll position
+    fn sync_focus_to_scroll(state: &mut ViewState, viewport_height: usize) {
+        if state.message_ranges.is_empty() {
+            return;
+        }
+        let viewport_start = state.scroll_offset;
+        let viewport_end = viewport_start + viewport_height;
+        let found = state
+            .message_ranges
+            .iter()
+            .position(|m| m.end_line > viewport_start && m.start_line < viewport_end);
+        if let Some(idx) = found {
+            state.focused_message = Some(idx);
+        }
+    }
+
+    /// Scroll viewport to make the focused message visible
+    fn ensure_message_visible(state: &mut ViewState, viewport_height: usize) {
+        if let Some(idx) = state.focused_message
+            && let Some(msg) = state.message_ranges.get(idx)
+        {
+            let max_scroll = state.total_lines.saturating_sub(viewport_height);
+            if msg.start_line < state.scroll_offset
+                || msg.start_line >= state.scroll_offset + viewport_height
+            {
+                state.scroll_offset = msg.start_line.min(max_scroll);
+            }
+        }
+    }
+
+    /// Copy the currently focused message to clipboard
+    fn copy_focused_message(&mut self, viewport_height: usize) {
+        // Activate nav mode and sync focus if needed
+        if let AppMode::View(ref mut state) = self.app_mode
+            && !state.message_nav_active
+        {
+            state.message_nav_active = true;
+            Self::sync_focus_to_scroll(state, viewport_height);
+        }
+
+        let (path, entry_index) = if let AppMode::View(ref state) = self.app_mode {
+            if let Some(idx) = state.focused_message {
+                if let Some(msg) = state.message_ranges.get(idx) {
+                    (state.conversation_path.clone(), msg.entry_index)
+                } else {
+                    return;
+                }
+            } else {
+                return;
+            }
+        } else {
+            return;
+        };
+
+        let options = if let AppMode::View(ref state) = self.app_mode {
+            crate::tui::export::ExportOptions {
+                show_tools: state.tool_display.is_visible(),
+                show_thinking: state.show_thinking,
+            }
+        } else {
+            return;
+        };
+
+        match crate::tui::export::extract_message_text(&path, entry_index, options) {
+            Ok(text) if text.is_empty() => {
+                self.status_message = Some((
+                    "No text content in this message".to_string(),
+                    std::time::Instant::now(),
+                ));
+            }
+            Ok(text) => match crate::tui::export::copy_to_system_clipboard(&text) {
+                Ok(()) => {
+                    self.status_message = Some((
+                        "Message copied to clipboard".to_string(),
+                        std::time::Instant::now(),
+                    ));
+                }
+                Err(e) => {
+                    self.status_message = Some((e, std::time::Instant::now()));
+                }
+            },
+            Err(e) => {
+                self.status_message = Some((e, std::time::Instant::now()));
             }
         }
     }
@@ -1557,7 +1780,8 @@ pub fn run(
     loop {
         let frame_area = guard.terminal.get_frame().area();
         let viewport_height = frame_area.height.saturating_sub(3) as usize; // Subtract header/status
-        let content_width = (frame_area.width as usize).saturating_sub(NAME_WIDTH + 3);
+        let content_width = (frame_area.width as usize)
+            .saturating_sub(NAME_WIDTH + 3 + crate::tui::viewer::GUTTER_WIDTH);
 
         // Check for resize in view mode
         app.check_view_resize(content_width, viewport_height);
@@ -1696,7 +1920,8 @@ pub fn run_with_loader(
 
         let frame_area = guard.terminal.get_frame().area();
         let viewport_height = frame_area.height.saturating_sub(3) as usize;
-        let content_width = (frame_area.width as usize).saturating_sub(NAME_WIDTH + 3);
+        let content_width = (frame_area.width as usize)
+            .saturating_sub(NAME_WIDTH + 3 + crate::tui::viewer::GUTTER_WIDTH);
 
         // Check for resize in view mode
         app.check_view_resize(content_width, viewport_height);
@@ -1796,7 +2021,8 @@ pub fn run_single_file(
     loop {
         let frame_area = guard.terminal.get_frame().area();
         let viewport_height = frame_area.height.saturating_sub(3) as usize;
-        let content_width = (frame_area.width as usize).saturating_sub(NAME_WIDTH + 3);
+        let content_width = (frame_area.width as usize)
+            .saturating_sub(NAME_WIDTH + 3 + crate::tui::viewer::GUTTER_WIDTH);
 
         // Check for resize in view mode (this triggers initial render too)
         app.check_view_resize(content_width, viewport_height);

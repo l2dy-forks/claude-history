@@ -71,6 +71,8 @@ preview.
 | -------------- | -------------------------------------------------- |
 | `j` / `↓`      | Scroll down                                        |
 | `k` / `↑`      | Scroll up                                          |
+| `J` / `]`      | Jump to next message                               |
+| `K` / `[`      | Jump to previous message                           |
 | `d` / `Ctrl+D` | Half page down                                     |
 | `u` / `Ctrl+U` | Half page up                                       |
 | `Page Down`    | Full page down                                     |
@@ -82,6 +84,9 @@ preview.
 | `N`            | Previous search match                              |
 | `t`            | Cycle tools: off/truncated/full                    |
 | `T`            | Toggle thinking                                    |
+| `c`            | Copy focused message to clipboard                  |
+| `e`            | Export conversation to file                        |
+| `y`            | Copy conversation to clipboard                     |
 | `p`            | Show file path                                     |
 | `Y`            | Copy file path to clipboard                        |
 | `I`            | Copy session ID to clipboard                       |

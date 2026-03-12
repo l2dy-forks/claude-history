@@ -15,6 +15,9 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::tui::theme::{self, Theme};
 
+/// Width of the focus gutter indicator (▌ + space)
+pub const GUTTER_WIDTH: usize = 2;
+
 const NAME_WIDTH: usize = 9;
 /// Width of timestamp prefix when timing is enabled (space + HH:MM + space)
 const TIMESTAMP_WIDTH: usize = 7;
@@ -71,6 +74,23 @@ pub struct RenderOptions {
     pub content_width: usize,
 }
 
+/// Tracks the line range of a single message (User or Assistant entry) in the rendered output
+#[derive(Clone, Debug)]
+pub struct MessageRange {
+    /// Index of the JSONL entry (line number in the file, 0-based, counting only parsed entries)
+    pub entry_index: usize,
+    /// Start line in rendered output (inclusive)
+    pub start_line: usize,
+    /// End line in rendered output (exclusive, excludes trailing blank)
+    pub end_line: usize,
+}
+
+/// Result of rendering a conversation
+pub struct RenderedConversation {
+    pub lines: Vec<RenderedLine>,
+    pub messages: Vec<MessageRange>,
+}
+
 /// Format an ISO 8601 timestamp to HH:MM local time
 fn format_timestamp(iso_timestamp: &str) -> Option<String> {
     use chrono::{DateTime, Local};
@@ -84,10 +104,12 @@ fn format_timestamp(iso_timestamp: &str) -> Option<String> {
 pub fn render_conversation(
     file_path: &Path,
     options: &RenderOptions,
-) -> std::io::Result<Vec<RenderedLine>> {
+) -> std::io::Result<RenderedConversation> {
     let file = File::open(file_path)?;
     let reader = BufReader::new(file);
     let mut lines = Vec::new();
+    let mut messages = Vec::new();
+    let mut entry_index: usize = 0;
 
     for line_result in reader.lines() {
         let line = line_result?;
@@ -96,16 +118,97 @@ pub fn render_conversation(
         }
 
         if let Ok(entry) = serde_json::from_str::<LogEntry>(&line) {
+            let is_message = matches!(entry, LogEntry::User { .. } | LogEntry::Assistant { .. });
+            let start_line = lines.len();
             render_entry(&mut lines, &entry, options);
+            let end_line = lines.len();
+
+            // Track message ranges (exclude trailing blank line from the range)
+            if is_message && end_line > start_line {
+                let effective_end = if end_line > 0
+                    && lines.get(end_line - 1).is_some_and(|l| l.spans.is_empty())
+                {
+                    end_line - 1
+                } else {
+                    end_line
+                };
+                if effective_end > start_line {
+                    messages.push(MessageRange {
+                        entry_index,
+                        start_line,
+                        end_line: effective_end,
+                    });
+                }
+            }
+            entry_index += 1;
         }
     }
 
     // Collapse consecutive empty lines into single empty lines.
     // Multiple render functions each add trailing empty lines, which can
     // result in double blanks when a tool result has empty output.
-    lines.dedup_by(|a, b| a.spans.is_empty() && b.spans.is_empty());
+    // After dedup, remap message ranges to account for removed lines.
+    let mut removed = vec![false; lines.len()];
+    let mut i = 1;
+    while i < lines.len() {
+        if lines[i].spans.is_empty() && lines[i - 1].spans.is_empty() {
+            removed[i] = true;
+            i += 1;
+        } else {
+            i += 1;
+        }
+    }
 
-    Ok(lines)
+    // Build index mapping: old line index -> new line index
+    let mut new_index = Vec::with_capacity(lines.len());
+    let mut offset = 0usize;
+    for (idx, &is_removed) in removed.iter().enumerate() {
+        if is_removed {
+            new_index.push(idx - offset); // won't be used, but fill for completeness
+            offset += 1;
+        } else {
+            new_index.push(idx - offset);
+        }
+    }
+    let total_after = lines.len() - offset;
+
+    // Remove the marked lines
+    {
+        let mut write = 0;
+        for (read, &is_removed) in removed.iter().enumerate() {
+            if !is_removed {
+                if write != read {
+                    lines.swap(write, read);
+                }
+                write += 1;
+            }
+        }
+        lines.truncate(total_after);
+    }
+
+    // Remap message ranges
+    for msg in &mut messages {
+        msg.start_line = new_index[msg.start_line];
+        // end_line is exclusive, so map the last included line and add 1
+        if msg.end_line > 0 && msg.end_line <= new_index.len() {
+            // Find the new index of the last non-removed line before end_line
+            let mut last = msg.end_line - 1;
+            while last > msg.start_line && removed[last] {
+                last -= 1;
+            }
+            msg.end_line = new_index[last] + 1;
+        } else if msg.end_line == new_index.len() {
+            msg.end_line = total_after;
+        }
+        // Clamp
+        msg.end_line = msg.end_line.min(total_after);
+        msg.start_line = msg.start_line.min(msg.end_line);
+    }
+
+    // Remove empty ranges
+    messages.retain(|m| m.start_line < m.end_line);
+
+    Ok(RenderedConversation { lines, messages })
 }
 
 fn render_entry(lines: &mut Vec<RenderedLine>, entry: &LogEntry, options: &RenderOptions) {

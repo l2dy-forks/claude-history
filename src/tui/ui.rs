@@ -526,6 +526,16 @@ fn render_view_content(frame: &mut Frame, state: &ViewState, area: Rect) {
     let visible_height = area.height as usize;
     let query_lower = state.search_query.to_lowercase();
 
+    // Determine focused message line range (only when nav mode active)
+    let focused_range = if state.message_nav_active {
+        state
+            .focused_message
+            .and_then(|idx| state.message_ranges.get(idx))
+            .map(|m| m.start_line..m.end_line)
+    } else {
+        None
+    };
+
     let visible_lines: Vec<Line> = state
         .rendered_lines
         .iter()
@@ -536,15 +546,37 @@ fn render_view_content(frame: &mut Frame, state: &ViewState, area: Rect) {
             let is_current_match = state.search_matches.get(state.current_match) == Some(&line_idx);
             let has_match = !query_lower.is_empty() && state.search_matches.contains(&line_idx);
 
-            let spans: Vec<Span> = if has_match && !query_lower.is_empty() {
-                highlight_line_matches(rendered, &query_lower, is_current_match)
+            let is_focused = focused_range
+                .as_ref()
+                .is_some_and(|r| r.contains(&line_idx));
+
+            // Gutter indicator (only shown in message nav mode)
+            let gutter = if state.message_nav_active {
+                if is_focused {
+                    Span::styled("▌ ", Style::default().fg(rgb(th().accent)))
+                } else {
+                    Span::raw("  ")
+                }
             } else {
-                rendered
-                    .spans
-                    .iter()
-                    .map(|(text, style)| styled_span(text, style))
-                    .collect()
+                Span::raw("")
             };
+
+            let mut spans: Vec<Span> = vec![gutter];
+
+            if has_match && !query_lower.is_empty() {
+                spans.extend(highlight_line_matches(
+                    rendered,
+                    &query_lower,
+                    is_current_match,
+                ));
+            } else {
+                spans.extend(
+                    rendered
+                        .spans
+                        .iter()
+                        .map(|(text, style)| styled_span(text, style)),
+                );
+            }
 
             Line::from(spans)
         })
@@ -613,6 +645,8 @@ fn render_view_status_bar(frame: &mut Frame, app: &App, state: &ViewState, area:
             Span::styled("help  ", label_style),
             Span::styled("/", key_style),
             Span::styled("search  ", label_style),
+            Span::styled("c", key_style),
+            Span::styled("opy msg  ", label_style),
             Span::styled("e", key_style),
             Span::styled("xport  ", label_style),
             Span::styled("y", key_style),
@@ -947,6 +981,8 @@ fn render_help_overlay(
         vec![
             ("j / ↓".into(), "Scroll down"),
             ("k / ↑".into(), "Scroll up"),
+            ("J / ]".into(), "Next message"),
+            ("K / [".into(), "Previous message"),
             ("d / Ctrl+D".into(), "Half page down"),
             ("u / Ctrl+U".into(), "Half page up"),
             ("g / Home".into(), "Jump to top"),
@@ -956,6 +992,7 @@ fn render_help_overlay(
             ("t".into(), "Cycle tools: off/trunc/full"),
             ("T".into(), "Toggle thinking"),
             ("i".into(), "Toggle timing"),
+            ("c".into(), "Copy message"),
             ("e".into(), "Export to file"),
             ("y".into(), "Copy to clipboard"),
             ("p".into(), "Show file path"),

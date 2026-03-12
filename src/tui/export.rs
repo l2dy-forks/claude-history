@@ -186,6 +186,98 @@ pub fn export_to_clipboard(
     }
 }
 
+/// Extract the text content of a single message by its entry index in the JSONL file.
+/// Returns the message text suitable for clipboard copying.
+pub fn extract_message_text(
+    source_path: &Path,
+    entry_index: usize,
+    options: ExportOptions,
+) -> Result<String, String> {
+    let file = File::open(source_path).map_err(|e| format!("Failed to read: {}", e))?;
+    let reader = BufReader::new(file);
+    let mut current_index: usize = 0;
+
+    for line in reader.lines() {
+        let line = line.map_err(|e| format!("Failed to read: {}", e))?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let Ok(entry) = serde_json::from_str::<LogEntry>(&line) else {
+            continue;
+        };
+
+        if current_index == entry_index {
+            return Ok(format_entry_for_clipboard(&entry, options));
+        }
+        current_index += 1;
+    }
+
+    Err("Message not found".to_string())
+}
+
+/// Format a single log entry as text for clipboard
+fn format_entry_for_clipboard(entry: &LogEntry, options: ExportOptions) -> String {
+    let mut output = String::new();
+    match entry {
+        LogEntry::User {
+            message,
+            parent_tool_use_id,
+            ..
+        } => {
+            if let Some(text) = extract_user_text(message) {
+                output.push_str(&text);
+            }
+            if options.show_tools
+                && let UserContent::Blocks(blocks) = &message.content
+            {
+                for block in blocks {
+                    if let ContentBlock::ToolResult { content, .. } = block {
+                        let content_str = format_tool_result_for_export(content.as_ref());
+                        if !output.is_empty() {
+                            output.push_str("\n\n");
+                        }
+                        output.push_str(&content_str);
+                    }
+                }
+            }
+            let _ = parent_tool_use_id;
+        }
+        LogEntry::Assistant {
+            message,
+            parent_tool_use_id,
+            ..
+        } => {
+            for block in &message.content {
+                match block {
+                    ContentBlock::Text { text } => {
+                        if !output.is_empty() {
+                            output.push_str("\n\n");
+                        }
+                        output.push_str(text);
+                    }
+                    ContentBlock::ToolUse { name, input, .. } if options.show_tools => {
+                        if !output.is_empty() {
+                            output.push_str("\n\n");
+                        }
+                        let formatted = format_tool_call_for_export(name, input);
+                        output.push_str(&formatted);
+                    }
+                    ContentBlock::Thinking { thinking, .. } if options.show_thinking => {
+                        if !output.is_empty() {
+                            output.push_str("\n\n");
+                        }
+                        output.push_str(thinking);
+                    }
+                    _ => {}
+                }
+            }
+            let _ = parent_tool_use_id;
+        }
+        _ => {}
+    }
+    output
+}
+
 /// Generate content in the specified format
 fn generate_content(
     source_path: &Path,
