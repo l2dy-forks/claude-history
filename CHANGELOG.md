@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.1.34 (2026-03-12)
+
+- Search now covers tool output (command results, file contents, grep output),
+  so you can find conversations by content that previously only appeared in tool
+  calls
+- Search highlighting now merges adjacent matches across separators — searching
+  "red team" highlights the full word `red_team` instead of just the individual
+  parts
+- Improved search performance in conversations with large tool outputs
+
 ## v0.1.33 (2026-03-12)
 
 - Added automatic light/dark theme detection — the TUI now adapts its color
