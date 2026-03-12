@@ -1518,6 +1518,31 @@ impl Drop for TerminalGuard {
 /// Name column width for ledger-style display
 const NAME_WIDTH: usize = 9;
 
+/// Maximum events to drain in a single batch to avoid starving redraws
+const MAX_EVENT_BATCH: usize = 256;
+
+/// Read all immediately available events after an initial blocking wait.
+///
+/// When pasting text, crossterm delivers each character as a separate KeyEvent.
+/// Without batching, each character triggers a full redraw before reading the next,
+/// making paste visibly slow. This function drains all ready events so the caller
+/// can process them all before a single redraw.
+fn drain_events(wait: Duration) -> Result<Vec<Event>> {
+    if !event::poll(wait).map_err(|e| AppError::Io(io::Error::other(e)))? {
+        return Ok(Vec::new());
+    }
+
+    let mut events = vec![event::read().map_err(|e| AppError::Io(io::Error::other(e)))?];
+
+    while events.len() < MAX_EVENT_BATCH
+        && event::poll(Duration::ZERO).map_err(|e| AppError::Io(io::Error::other(e)))?
+    {
+        events.push(event::read().map_err(|e| AppError::Io(io::Error::other(e)))?);
+    }
+
+    Ok(events)
+}
+
 /// Run the TUI and return the selected conversation path or None if cancelled
 pub fn run(
     conversations: Vec<Conversation>,
@@ -1553,52 +1578,59 @@ pub fn run(
 
         guard.terminal.draw(|frame| ui::render(frame, &app))?;
 
-        if let Event::Key(key) = event::read().map_err(|e| AppError::Io(io::Error::other(e)))? {
-            // Only handle key press events (not release)
-            if key.kind == KeyEventKind::Press {
-                // Check for Enter in list mode - enter view mode (but not during dialogs)
-                if matches!(app.app_mode(), AppMode::List)
-                    && *app.dialog_mode() == DialogMode::None
-                    && key.code == KeyCode::Enter
-                    && !app.is_loading()
-                    && app.selected().is_some()
-                {
-                    app.enter_view_mode(content_width);
-                    continue;
-                }
+        // Drain all immediately available events before redrawing.
+        // This batches paste input so only one redraw happens at the end.
+        let events = drain_events(Duration::from_secs(3600))?;
 
-                if let Some(action) = app.handle_key(key.code, key.modifiers, viewport_height) {
-                    match action {
-                        Action::Delete(ref path) => {
-                            // Delete the file from disk
-                            match std::fs::remove_file(path) {
-                                Ok(()) => {
-                                    // Only remove from list if file deletion succeeded
-                                    app.remove_selected_from_list();
-                                    // If in view mode, return to list
-                                    app.exit_view_mode();
-                                }
-                                Err(e) => {
-                                    let _ = debug_log::log_debug(&format!(
-                                        "Failed to delete {}: {}",
-                                        path.display(),
-                                        e
-                                    ));
-                                    // Keep item in list since file still exists
-                                }
+        for ev in events {
+            let Event::Key(key) = ev else { continue };
+            // Only handle key press events (not release)
+            if key.kind != KeyEventKind::Press {
+                continue;
+            }
+
+            // Check for Enter in list mode - enter view mode (but not during dialogs)
+            if matches!(app.app_mode(), AppMode::List)
+                && *app.dialog_mode() == DialogMode::None
+                && key.code == KeyCode::Enter
+                && !app.is_loading()
+                && app.selected().is_some()
+            {
+                app.enter_view_mode(content_width);
+                break; // mode transition: redraw before processing more events
+            }
+
+            if let Some(action) = app.handle_key(key.code, key.modifiers, viewport_height) {
+                match action {
+                    Action::Delete(ref path) => {
+                        // Delete the file from disk
+                        match std::fs::remove_file(path) {
+                            Ok(()) => {
+                                // Only remove from list if file deletion succeeded
+                                app.remove_selected_from_list();
+                                // If in view mode, return to list
+                                app.exit_view_mode();
                             }
-                            // Continue the loop (don't exit TUI)
+                            Err(e) => {
+                                let _ = debug_log::log_debug(&format!(
+                                    "Failed to delete {}: {}",
+                                    path.display(),
+                                    e
+                                ));
+                                // Keep item in list since file still exists
+                            }
                         }
-                        Action::Select(ref path) => {
-                            let _ = debug_log::log_selected_path(path);
-                            return Ok(action);
-                        }
-                        Action::Resume(ref path) | Action::ForkResume(ref path) => {
-                            let _ = debug_log::log_selected_path(path);
-                            return Ok(action);
-                        }
-                        Action::Quit => return Ok(action),
+                        // Continue the loop (don't exit TUI)
                     }
+                    Action::Select(ref path) => {
+                        let _ = debug_log::log_selected_path(path);
+                        return Ok(action);
+                    }
+                    Action::Resume(ref path) | Action::ForkResume(ref path) => {
+                        let _ = debug_log::log_selected_path(path);
+                        return Ok(action);
+                    }
+                    Action::Quit => return Ok(action),
                 }
             }
         }
@@ -1683,10 +1715,16 @@ pub fn run_with_loader(
             Duration::from_secs(3600)
         };
 
-        if event::poll(poll_timeout).map_err(|e| AppError::Io(io::Error::other(e)))?
-            && let Event::Key(key) = event::read().map_err(|e| AppError::Io(io::Error::other(e)))?
-            && key.kind == KeyEventKind::Press
-        {
+        // Drain all immediately available events before redrawing.
+        // This batches paste input so only one redraw happens at the end.
+        let events = drain_events(poll_timeout)?;
+
+        for ev in events {
+            let Event::Key(key) = ev else { continue };
+            if key.kind != KeyEventKind::Press {
+                continue;
+            }
+
             // Check for Enter in list mode - enter view mode (but not during dialogs)
             if matches!(app.app_mode(), AppMode::List)
                 && *app.dialog_mode() == DialogMode::None
@@ -1695,7 +1733,7 @@ pub fn run_with_loader(
                 && app.selected().is_some()
             {
                 app.enter_view_mode(content_width);
-                continue;
+                break; // mode transition: redraw before processing more events
             }
 
             if let Some(action) = app.handle_key(key.code, key.modifiers, viewport_height) {
@@ -1756,11 +1794,17 @@ pub fn run_single_file(
 
         guard.terminal.draw(|frame| ui::render(frame, &app))?;
 
-        if let Event::Key(key) = event::read().map_err(|e| AppError::Io(io::Error::other(e)))?
-            && key.kind == KeyEventKind::Press
-            && let Some(Action::Quit) = app.handle_key(key.code, key.modifiers, viewport_height)
-        {
-            return Ok(());
+        // Drain all immediately available events before redrawing.
+        let events = drain_events(Duration::from_secs(3600))?;
+
+        for ev in events {
+            let Event::Key(key) = ev else { continue };
+            if key.kind != KeyEventKind::Press {
+                continue;
+            }
+            if let Some(Action::Quit) = app.handle_key(key.code, key.modifiers, viewport_height) {
+                return Ok(());
+            }
         }
     }
 }
