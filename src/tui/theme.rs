@@ -50,6 +50,10 @@ pub struct Theme {
     pub dot_separator: Rgb,
     pub msg_count: Rgb,
     pub header_summary: Rgb,
+    pub timestamp_now: Rgb,
+    pub timestamp_minutes: Rgb,
+    pub timestamp_hours: Rgb,
+    pub timestamp_days: Rgb,
 
     // Disabled/dim states
     pub dim_key: Rgb,
@@ -104,6 +108,10 @@ impl Theme {
             dot_separator: (70, 70, 70),
             msg_count: (110, 110, 110),
             header_summary: (180, 180, 180),
+            timestamp_now: (78, 201, 176), // Bright teal (same as accent)
+            timestamp_minutes: (90, 175, 160), // Soft teal
+            timestamp_hours: (130, 155, 150), // Muted teal-gray
+            timestamp_days: (140, 140, 140), // Same as text_secondary
 
             dim_key: (60, 60, 60),
             dim_label: (60, 60, 60),
@@ -151,9 +159,13 @@ impl Theme {
             context_base: (120, 130, 138),          // Light-medium gray
             context_highlight: (13, 128, 118),      // Same as accent
 
-            dot_separator: (168, 176, 182), // Cool light gray
-            msg_count: (105, 115, 122),     // Cool medium gray
-            header_summary: (88, 101, 112), // Matches text_secondary
+            dot_separator: (168, 176, 182),    // Cool light gray
+            msg_count: (105, 115, 122),        // Cool medium gray
+            header_summary: (88, 101, 112),    // Matches text_secondary
+            timestamp_now: (13, 128, 118),     // Same as accent
+            timestamp_minutes: (30, 115, 105), // Soft teal
+            timestamp_hours: (60, 100, 95),    // Muted teal-gray
+            timestamp_days: (88, 101, 112),    // Same as text_secondary
 
             dim_key: (180, 188, 194), // Light for disabled
             dim_label: (180, 188, 194),

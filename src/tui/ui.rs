@@ -1092,7 +1092,7 @@ fn render_list(frame: &mut Frame, app: &App, area: Rect) {
             let is_selected = app.selected() == Some(list_idx);
 
             // Format timestamp (hybrid: relative for recent, absolute for older)
-            let timestamp = format_timestamp(conv.timestamp, now);
+            let (timestamp, recency) = format_timestamp(conv.timestamp, now);
 
             // Format message count
             let msg_count = if conv.message_count == 1 {
@@ -1264,9 +1264,16 @@ fn render_list(frame: &mut Frame, app: &App, area: Rect) {
                 " · ",
                 Style::default().fg(rgb(th().dot_separator)),
             ));
+            let timestamp_color = match recency {
+                Recency::Now => th().timestamp_now,
+                Recency::Minutes => th().timestamp_minutes,
+                Recency::Hours => th().timestamp_hours,
+                Recency::Days => th().timestamp_days,
+                Recency::Old => th().text_secondary,
+            };
             header_spans.push(Span::styled(
                 timestamp,
-                Style::default().fg(rgb(th().text_secondary)),
+                Style::default().fg(rgb(timestamp_color)),
             ));
 
             let header = Line::from(header_spans).style(selection_bg);
@@ -1340,14 +1347,23 @@ fn render_list(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(list, area);
 }
 
+/// Recency level for timestamp color grading
+enum Recency {
+    Now,
+    Minutes,
+    Hours,
+    Days,
+    Old,
+}
+
 /// Format a timestamp as relative time for recent entries, absolute for older ones.
-/// Threshold: entries within the last 7 days show relative time.
-fn format_timestamp(timestamp: DateTime<Local>, now: DateTime<Local>) -> String {
+/// Returns (formatted_string, recency) for color grading.
+fn format_timestamp(timestamp: DateTime<Local>, now: DateTime<Local>) -> (String, Recency) {
     let age = now.signed_duration_since(timestamp);
 
     // Future timestamps (clock skew): show absolute
     if age.num_seconds() < 0 {
-        return timestamp.format("%b %d, %H:%M").to_string();
+        return (timestamp.format("%b %d, %H:%M").to_string(), Recency::Old);
     }
 
     let seconds = age.num_seconds();
@@ -1355,13 +1371,16 @@ fn format_timestamp(timestamp: DateTime<Local>, now: DateTime<Local>) -> String 
     let hours = age.num_hours();
 
     if seconds < 60 {
-        return "just now".to_string();
+        return ("just now".to_string(), Recency::Now);
     }
     if minutes < 60 {
-        return format!("{minutes} min ago");
+        return (format!("{minutes} min ago"), Recency::Minutes);
     }
     if hours < 24 {
-        return format!("{hours} hour{} ago", if hours == 1 { "" } else { "s" });
+        return (
+            format!("{hours} hour{} ago", if hours == 1 { "" } else { "s" }),
+            Recency::Hours,
+        );
     }
 
     // Use calendar day difference for "yesterday" accuracy
@@ -1370,13 +1389,13 @@ fn format_timestamp(timestamp: DateTime<Local>, now: DateTime<Local>) -> String 
         .signed_duration_since(timestamp.date_naive())
         .num_days();
     if day_diff == 1 {
-        return "yesterday".to_string();
+        return ("yesterday".to_string(), Recency::Days);
     }
     if day_diff < 7 {
-        return format!("{day_diff} days ago");
+        return (format!("{day_diff} days ago"), Recency::Days);
     }
 
-    timestamp.format("%b %d, %H:%M").to_string()
+    (timestamp.format("%b %d, %H:%M").to_string(), Recency::Old)
 }
 
 /// Truncate text to max_width chars, adding "…" suffix if truncated.
