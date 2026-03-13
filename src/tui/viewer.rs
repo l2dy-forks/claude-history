@@ -893,7 +893,7 @@ impl TuiMarkdownRenderer {
 
         // Handle text wrapping
         for word in text.split_inclusive(char::is_whitespace) {
-            let word_width = word.chars().count();
+            let word_width = word.width();
 
             // Check if we need to wrap
             if self.current_width + word_width > self.max_width && self.current_width > 0 {
@@ -916,7 +916,7 @@ impl TuiMarkdownRenderer {
         }
 
         // Wrap to next line if the code won't fit on the current line
-        let code_width = code.chars().count();
+        let code_width = code.width();
         if self.current_width + code_width > self.max_width && self.current_width > 0 {
             self.flush_line();
             if let Some(ctx) = self.list_stack.last() {
@@ -959,7 +959,7 @@ impl TuiMarkdownRenderer {
     fn push_styled_text(&mut self, text: &str, style: LineStyle) {
         if !text.is_empty() {
             self.current_line.push((text.to_string(), style));
-            self.current_width += text.chars().count();
+            self.current_width += text.width();
         }
     }
 
