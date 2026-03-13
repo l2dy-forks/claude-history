@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.1.38 (2026-03-13)
+
+- Improved search for CJK (Chinese, Japanese, Korean) text — queries with CJK
+  characters now match correctly even when words aren't separated by spaces
+  ([#19](https://github.com/raine/claude-history/pull/19))
+- Added emacs-style keybindings to the search input: `Ctrl+A`/`Ctrl+E` to jump
+  to start/end, `Ctrl+B`/`Ctrl+F` to move by character, `Alt+B`/`Alt+F` and
+  `Ctrl+Left`/`Ctrl+Right` to move by word, `Ctrl+K` to kill to end of line,
+  `Ctrl+U` to kill to start of line
+  ([#19](https://github.com/raine/claude-history/pull/19))
+- Fixed cursor alignment issues with wide characters (e.g. CJK, emoji) in the
+  search input and conversation viewer
+  ([#19](https://github.com/raine/claude-history/pull/19))
+
 ## v0.1.37 (2026-03-13)
 
 - Linux prebuilt binaries are now statically linked, fixing compatibility issues
