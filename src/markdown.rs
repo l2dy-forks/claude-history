@@ -669,11 +669,11 @@ mod tests {
             "Expected bold ANSI codes in: {:?}",
             result
         );
-        colored::control::unset_override();
     }
 
     #[test]
     fn test_code_block() {
+        colored::control::set_override(true);
         let result = render_markdown("```rust\nlet x = 1;\n```", 80);
         // With syntax highlighting, tokens are split with ANSI codes
         // Check individual tokens are present
@@ -773,10 +773,10 @@ Next paragraph here."#;
 
     #[test]
     fn test_code_block_wrapping() {
-        // Use --no-color mode (colors disabled by default in tests)
+        // Use plain mode to test wrapping without ANSI codes affecting width
         let long_line = "x".repeat(100);
         let input = format!("```\n{}\n```", long_line);
-        let result = render_markdown(&input, 40);
+        let result = render_markdown_plain(&input, 40);
         // Every output line should fit within max_width
         for line in result.lines() {
             let width = UnicodeWidthStr::width(line);

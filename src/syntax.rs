@@ -146,8 +146,6 @@ mod tests {
             output.matches("\x1b[38;2;").count() > 1,
             "Expected multiple color codes for different tokens"
         );
-
-        colored::control::unset_override();
     }
 
     #[test]
@@ -175,7 +173,5 @@ mod tests {
         let code = "const x = 1;";
         let result = highlight_code_ansi(code, "js");
         assert!(result.is_some());
-
-        colored::control::unset_override();
     }
 }
