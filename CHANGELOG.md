@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.1.39 (2026-03-13)
+
+- Added `--delete` flag to remove a session by its ID directly from the command
+  line, e.g. `claude-history --delete <session-id>`
+  ([#23](https://github.com/raine/claude-history/issues/23)
+- Added `--version` flag to display the current version
+  ([#22](https://github.com/raine/claude-history/issues/22))
+- Invalid session IDs now show a clear error message instead of failing silently
+
 ## v0.1.38 (2026-03-13)
 
 - Improved search for CJK (Chinese, Japanese, Korean) text — queries with CJK
