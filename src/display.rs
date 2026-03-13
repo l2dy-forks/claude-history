@@ -282,71 +282,84 @@ impl<W: Write + ?Sized> OutputFormatter for LedgerFormatter<'_, W> {
 }
 
 /// Plain text formatter without formatting or alignment
-struct PlainFormatter;
+struct PlainFormatter<'a, W: Write + ?Sized> {
+    writer: &'a mut W,
+}
 
 /// Default content width for plain text output
 const PLAIN_CONTENT_WIDTH: usize = 80;
 
-impl OutputFormatter for PlainFormatter {
+impl<'a, W: Write + ?Sized> OutputFormatter for PlainFormatter<'a, W> {
     fn format_user_text(&mut self, text: &str) {
-        println!("You: {}", text);
+        let _ = writeln!(self.writer, "You: {}", text);
     }
 
     fn format_assistant_text(&mut self, text: &str) {
-        println!("Claude: {}", text);
+        let _ = writeln!(self.writer, "Claude: {}", text);
     }
 
     fn format_tool_call(&mut self, name: &str, input: &serde_json::Value) {
         let formatted = tool_format::format_tool_call(name, input, PLAIN_CONTENT_WIDTH);
-        println!("Claude: {}", formatted.header);
+        let _ = writeln!(self.writer, "Claude: {}", formatted.header);
         if let Some(body) = formatted.body {
             for line in body.lines() {
-                println!("  {}", line);
+                let _ = writeln!(self.writer, "  {}", line);
             }
         }
     }
 
     fn format_tool_result(&mut self, content: Option<&serde_json::Value>) {
-        println!("Tool: <Result>");
+        let _ = writeln!(self.writer, "Tool: <Result>");
         let content_str = format_tool_content(content);
-        println!("{}", content_str);
+        let _ = writeln!(self.writer, "{}", content_str);
     }
 
     fn format_thinking(&mut self, thought: &str) {
-        println!("Thinking: {}", thought);
+        let _ = writeln!(self.writer, "Thinking: {}", thought);
     }
 
     fn end_message(&mut self) {
-        println!();
+        let _ = writeln!(self.writer);
     }
 
     fn format_agent_user_text(&mut self, agent_id: &str, text: &str) {
-        println!("  [{}] User: {}", short_agent_id(agent_id), text);
+        let _ = writeln!(
+            self.writer,
+            "  [{}] User: {}",
+            short_agent_id(agent_id),
+            text
+        );
     }
 
     fn format_agent_assistant_text(&mut self, agent_id: &str, text: &str) {
-        println!("  [{}] Agent: {}", short_agent_id(agent_id), text);
+        let _ = writeln!(
+            self.writer,
+            "  [{}] Agent: {}",
+            short_agent_id(agent_id),
+            text
+        );
     }
 
     fn format_agent_tool_call(&mut self, agent_id: &str, name: &str, input: &serde_json::Value) {
         let formatted = tool_format::format_tool_call(name, input, PLAIN_CONTENT_WIDTH);
-        println!(
+        let _ = writeln!(
+            self.writer,
             "  [{}] Agent: {}",
             short_agent_id(agent_id),
             formatted.header
         );
         if let Some(body) = formatted.body {
             for line in body.lines() {
-                println!("    {}", line);
+                let _ = writeln!(self.writer, "    {}", line);
             }
         }
     }
 
     fn format_agent_tool_result(&mut self, _agent_id: &str, content: Option<&serde_json::Value>) {
-        println!("    Tool: <Result>");
+        let _ = writeln!(self.writer, "    Tool: <Result>");
         let content_str = format_tool_content(content);
         for line in content_str.lines() {
-            println!("    {}", line);
+            let _ = writeln!(self.writer, "    {}", line);
         }
     }
 }
@@ -515,7 +528,22 @@ pub fn display_conversation(file_path: &Path, options: &DisplayOptions) -> Resul
 pub fn display_conversation_plain(file_path: &Path, options: &DisplayOptions) -> Result<()> {
     let file = File::open(file_path)?;
     let reader = BufReader::new(file);
-    let mut formatter = PlainFormatter;
+
+    // Spawn pager if requested
+    let mut pager_child = if options.use_pager {
+        pager::spawn_pager().ok()
+    } else {
+        None
+    };
+
+    let mut stdout_handle = io::stdout().lock();
+    let writer: &mut dyn Write = if let Some(ref mut child) = pager_child {
+        child.stdin.as_mut().unwrap()
+    } else {
+        &mut stdout_handle
+    };
+
+    let mut formatter = PlainFormatter { writer };
 
     for (line_number, line_result) in reader.lines().enumerate() {
         let line = line_result?;
@@ -547,6 +575,12 @@ pub fn display_conversation_plain(file_path: &Path, options: &DisplayOptions) ->
                 }
             }
         }
+    }
+
+    // Close stdin and wait for pager to finish
+    drop(stdout_handle);
+    if let Some(mut child) = pager_child {
+        let _ = child.wait();
     }
 
     Ok(())
