@@ -867,7 +867,7 @@ fn render_search_bar(frame: &mut Frame, app: &App, area: Rect) {
             format!("Loading... {}", loaded)
         }
         LoadingState::Ready => {
-            format!("{}/{}", app.filtered().len(), app.conversations().len())
+            format!("{}/{}", app.filtered().len(), app.scoped_count())
         }
     };
 
