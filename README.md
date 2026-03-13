@@ -395,7 +395,7 @@ EOF
 - `no_tools` (boolean): When `true`, hides tool calls; when `false`, shows them
   in full. When unset (default), tools display in truncated mode
 - `last` (boolean): Show last messages instead of first in TUI preview (default:
-  false)
+  true)
 - `show_thinking` (boolean): Show thinking blocks and subagent internals in
   conversation output (default: false)
 - `plain` (boolean): Output plain text without ledger formatting (default:
