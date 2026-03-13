@@ -177,21 +177,21 @@ Options:
   -t, --show-tools       Show tool calls in the conversation output
       --no-tools         Hide tool calls from the conversation output
   -d, --show-dir         Print the conversation directory path and exit
-  -l, --last             Show the last messages in the TUI preview
+  -l, --last             Show the last messages in the TUI preview (default)
       --first            Show the first messages in the TUI preview
-      --show-thinking    Show thinking blocks in the conversation output
-      --hide-thinking    Hide thinking blocks from the conversation output
+      --show-thinking    Show thinking blocks and subagent internals in the conversation output
+      --hide-thinking    Hide thinking blocks and subagent internals from the conversation output
   -c, --resume           Resume the selected conversation in Claude Code
       --fork-session     Fork the session when resuming
   -p, --show-path        Print the selected conversation file path
   -i, --show-id          Print the selected conversation session ID
       --plain            Output plain text without ledger formatting
-      --debug [<LEVEL>]  Print debug information (filter by level: debug, info, warn, error)
+      --debug [<LEVEL>]  Print debug information (optionally filter by level: debug, info, warn, error)
   -g, --global           Search all conversations from all projects at once
-      --render <FILE>    Render a JSONL file in ledger format and exit
-      --no-color         Disable colored output
       --pager            Display output through a pager (less)
       --no-pager         Disable pager output
+      --render <FILE>    Render a JSONL file in ledger format and exit
+      --no-color         Disable colored output
   -h, --help             Print help
   -V, --version          Print version
 ```
