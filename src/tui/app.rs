@@ -211,7 +211,12 @@ fn spawn_search_worker() -> (mpsc::Sender<SearchCommand>, mpsc::Receiver<SearchR
                                     .path
                                     .parent()
                                     .and_then(|p| p.file_name())
-                                    .is_some_and(|name| name.to_string_lossy() == *dir_name)
+                                    .is_some_and(|name| {
+                                        crate::history::path::is_same_project(
+                                            &name.to_string_lossy(),
+                                            dir_name,
+                                        )
+                                    })
                             });
                         }
 
@@ -442,7 +447,12 @@ impl App {
                     .path
                     .parent()
                     .and_then(|p| p.file_name())
-                    .is_none_or(|name| name.to_string_lossy() != *project_dir_name)
+                    .is_none_or(|name| {
+                        !crate::history::path::is_same_project(
+                            &name.to_string_lossy(),
+                            project_dir_name,
+                        )
+                    })
             {
                 continue;
             }
@@ -527,6 +537,7 @@ impl App {
         let mut filtered = search::search(&self.conversations, &self.searchable, &self.query, now);
 
         // Apply workspace filter if active
+        // Matches conversations from the same project, including workmux worktrees
         if self.workspace_filter
             && let Some(ref project_dir_name) = self.current_project_dir_name
         {
@@ -535,7 +546,12 @@ impl App {
                     .path
                     .parent()
                     .and_then(|p| p.file_name())
-                    .is_some_and(|name| name.to_string_lossy() == *project_dir_name)
+                    .is_some_and(|name| {
+                        crate::history::path::is_same_project(
+                            &name.to_string_lossy(),
+                            project_dir_name,
+                        )
+                    })
             });
         }
 

@@ -13,7 +13,7 @@
 
 mod loader;
 mod parser;
-mod path;
+pub mod path;
 
 use crate::error::{AppError, Result};
 use chrono::{DateTime, Local};

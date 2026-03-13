@@ -304,7 +304,9 @@ Use `-L`/`--local` to start with the workspace filter active.
 
 For [workmux](https://github.com/raine/workmux) users, worktree paths are
 displayed in a compact format: `[project/worktree]` instead of just the worktree
-folder name.
+folder name. The project filter (toggled with `Tab`) is worktree-aware: it
+includes conversations from the main repo and all its worktrees, regardless of
+which one you're currently in.
 
 The `--resume` flag works across projects. It will automatically run Claude
 in the correct project directory for the selected conversation.

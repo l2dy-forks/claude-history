@@ -63,6 +63,47 @@ pub fn format_short_name_from_path(path: &Path) -> String {
         .unwrap_or_else(|| path_str.into_owned())
 }
 
+/// The encoded worktree marker that appears in Claude project directory names.
+///
+/// workmux creates worktrees at `<project>/.worktrees/<branch>/` (or
+/// `<project>__worktrees/<branch>/` on older setups). Both encode to
+/// `--worktrees-` because `.`, `_`, and `/` all become `-` in Claude's
+/// encoding scheme.
+const WORKTREE_MARKER: &str = "--worktrees-";
+
+/// Extract the encoded project root from an encoded project directory name.
+///
+/// If the encoded name contains a worktree marker (`--worktrees-`), returns
+/// everything before it (the project root portion). Otherwise returns the
+/// full encoded name as-is.
+///
+/// # Examples
+/// ```
+/// # use claude_history::history::path::encoded_project_root;
+/// assert_eq!(
+///     encoded_project_root("-Users-raine-code-project--worktrees-branch"),
+///     "-Users-raine-code-project"
+/// );
+/// assert_eq!(
+///     encoded_project_root("-Users-raine-code-project"),
+///     "-Users-raine-code-project"
+/// );
+/// ```
+pub fn encoded_project_root(encoded: &str) -> &str {
+    encoded
+        .split_once(WORKTREE_MARKER)
+        .map_or(encoded, |(root, _)| root)
+}
+
+/// Check if two encoded project directory names belong to the same project.
+///
+/// Two names are considered part of the same project if they share the same
+/// encoded project root (i.e., stripping any workmux `--worktrees-<branch>`
+/// suffix yields the same string).
+pub fn is_same_project(a: &str, b: &str) -> bool {
+    encoded_project_root(a) == encoded_project_root(b)
+}
+
 /// Decode a project directory name back to a path (simple heuristic fallback).
 ///
 /// Claude's encoding replaces all non-alphanumeric characters (except `-`) with `-`.
@@ -336,5 +377,71 @@ mod tests {
         let after = &path[wt_pos + "/.worktrees/".len()..];
         let worktree = after.split('/').next().unwrap();
         assert_eq!(worktree, "uncommitted");
+    }
+
+    // === Project root and same-project matching tests ===
+
+    #[test]
+    fn encoded_project_root_strips_worktree_suffix() {
+        assert_eq!(
+            encoded_project_root("-Users-raine-code-project--worktrees-branch"),
+            "-Users-raine-code-project"
+        );
+    }
+
+    #[test]
+    fn encoded_project_root_returns_full_name_without_worktree() {
+        assert_eq!(
+            encoded_project_root("-Users-raine-code-project"),
+            "-Users-raine-code-project"
+        );
+    }
+
+    #[test]
+    fn is_same_project_matches_main_and_worktree() {
+        let main = "-Users-raine-code-project";
+        let worktree = "-Users-raine-code-project--worktrees-fix-search";
+        assert!(is_same_project(main, worktree));
+        assert!(is_same_project(worktree, main));
+    }
+
+    #[test]
+    fn is_same_project_matches_two_worktrees() {
+        let wt1 = "-Users-raine-code-project--worktrees-branch-a";
+        let wt2 = "-Users-raine-code-project--worktrees-branch-b";
+        assert!(is_same_project(wt1, wt2));
+    }
+
+    #[test]
+    fn is_same_project_matches_identical() {
+        let name = "-Users-raine-code-project";
+        assert!(is_same_project(name, name));
+    }
+
+    #[test]
+    fn is_same_project_rejects_different_projects() {
+        let a = "-Users-raine-code-project-a";
+        let b = "-Users-raine-code-project-b";
+        assert!(!is_same_project(a, b));
+    }
+
+    #[test]
+    fn is_same_project_hidden_worktrees() {
+        // .worktrees encodes to --worktrees- (dot becomes dash)
+        let main = convert_path_to_project_dir_name(Path::new("/Users/raine/code/myproject"));
+        let worktree = convert_path_to_project_dir_name(Path::new(
+            "/Users/raine/code/myproject/.worktrees/feature",
+        ));
+        assert!(is_same_project(&main, &worktree));
+    }
+
+    #[test]
+    fn is_same_project_double_underscore_worktrees() {
+        // __worktrees also encodes to --worktrees-
+        let main = convert_path_to_project_dir_name(Path::new("/Users/raine/code/myproject"));
+        let worktree = convert_path_to_project_dir_name(Path::new(
+            "/Users/raine/code/myproject__worktrees/feature",
+        ));
+        assert!(is_same_project(&main, &worktree));
     }
 }
