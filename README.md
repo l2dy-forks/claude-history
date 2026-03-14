@@ -35,6 +35,14 @@ brew install raine/claude-history/claude-history
 cargo install claude-history
 ```
 
+## Updating
+
+```sh
+claude-history update
+```
+
+Homebrew users should use `brew upgrade claude-history` instead.
+
 ## Usage
 
 Run the tool from inside the project directory you're interested in:
@@ -170,6 +178,10 @@ Press `q` or `Esc` to return to the conversation list.
 View Claude conversation history
 
 Usage: claude-history [OPTIONS] [FILE]
+       claude-history [COMMAND]
+
+Commands:
+  update  Update claude-history to the latest version
 
 Arguments:
   [FILE]  JSONL conversation file to view directly

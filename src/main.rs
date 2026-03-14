@@ -11,9 +11,10 @@ mod pager;
 mod syntax;
 mod tool_format;
 mod tui;
+mod update;
 
 use clap::Parser;
-use cli::Args;
+use cli::{Args, Commands};
 use error::{AppError, Result};
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
@@ -53,11 +54,19 @@ fn resolve_bool_setting(
 }
 
 fn run() -> Result<()> {
+    let args = Args::parse();
+
+    // Handle subcommands
+    if let Some(command) = args.command {
+        return match command {
+            Commands::Update => update::run(),
+        };
+    }
+
     // Detect terminal theme before entering raw mode / alternate screen,
     // as terminal_light queries the terminal for background color
     tui::theme::detect_theme();
 
-    let args = Args::parse();
     let config = config::load_config()?;
 
     // Merge CLI arguments with config file settings. CLI takes precedence.

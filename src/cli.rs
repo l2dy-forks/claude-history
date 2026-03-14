@@ -1,4 +1,4 @@
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use std::fmt;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -40,11 +40,21 @@ impl fmt::Display for DebugLevel {
     }
 }
 
+#[derive(Debug, Subcommand)]
+pub enum Commands {
+    /// Update claude-history to the latest version
+    Update,
+}
+
 #[derive(Parser, Debug)]
 #[command(name = "claude-history")]
 #[command(version)]
 #[command(about = "View Claude conversation history")]
+#[command(args_conflicts_with_subcommands = true)]
 pub struct Args {
+    #[command(subcommand)]
+    pub command: Option<Commands>,
+
     /// Show tool calls in the conversation output
     #[arg(long, short = 't', group = "tools_display")]
     pub show_tools: bool,
