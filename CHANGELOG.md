@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.43 (2026-03-14)
+
+- Added `claude-history update` command for self-updating the binary directly
+  from GitHub releases
+
 ## v0.1.42 (2026-03-13)
 
 - Subagent messages are now included in J/K message navigation and single
