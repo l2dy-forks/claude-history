@@ -11,6 +11,7 @@ use crate::claude::{
 use crate::cli::DebugLevel;
 use crate::debug;
 use crate::error::Result;
+use crate::tui::search::normalize_for_search;
 use chrono::{DateTime, Local};
 use std::collections::{HashMap, VecDeque};
 use std::fs::File;
@@ -22,20 +23,18 @@ use std::time::SystemTime;
 /// Process a single conversation file and extract all necessary information
 pub fn process_conversation_file(
     path: PathBuf,
-    show_last: bool,
     modified: Option<SystemTime>,
     debug_level: Option<DebugLevel>,
 ) -> Result<Option<Conversation>> {
     let file = File::open(&path)?;
     let reader = BufReader::new(file);
-    process_conversation_reader(path, reader, show_last, modified, debug_level)
+    process_conversation_reader(path, reader, modified, debug_level)
 }
 
 /// Process a conversation from any BufRead source (for testability)
 pub(crate) fn process_conversation_reader<R: BufRead>(
     path: PathBuf,
     reader: R,
-    show_last: bool,
     modified: Option<SystemTime>,
     debug_level: Option<DebugLevel>,
 ) -> Result<Option<Conversation>> {
@@ -296,24 +295,21 @@ pub(crate) fn process_conversation_reader<R: BufRead>(
         .map(DateTime::<Local>::from)
         .unwrap_or_else(Local::now);
 
-    // Create preview (first or last 3 messages)
+    // Create both preview variants (first and last 3 messages)
     // Skip leading assistant messages by using preview_parts instead of all_parts
-    let preview = if show_last {
-        preview_parts
-            .iter()
-            .rev()
-            .take(3)
-            .cloned()
-            .collect::<Vec<_>>()
-            .join(" ... ")
-    } else {
-        preview_parts
-            .iter()
-            .take(3)
-            .cloned()
-            .collect::<Vec<_>>()
-            .join(" ... ")
-    };
+    let preview_first = preview_parts
+        .iter()
+        .take(3)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(" ... ");
+    let preview_last = preview_parts
+        .iter()
+        .rev()
+        .take(3)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(" ... ");
 
     // Create full text for searching (all messages + summary + custom title)
     let mut full_text = all_parts.join(" ");
@@ -325,8 +321,12 @@ pub(crate) fn process_conversation_reader<R: BufRead>(
     }
 
     // Normalize whitespace
-    let preview = normalize_whitespace(&preview);
+    let preview_first = normalize_whitespace(&preview_first);
+    let preview_last = normalize_whitespace(&preview_last);
     let full_text = normalize_whitespace(&full_text);
+
+    // Pre-normalize search text to avoid re-normalizing on every startup
+    let search_text_lower = normalize_for_search(&full_text);
 
     // Sum token usage from deduplicated messages (all token types)
     let total_tokens: u64 = token_usage_by_msg
@@ -358,8 +358,11 @@ pub(crate) fn process_conversation_reader<R: BufRead>(
         path,
         index: 0,
         timestamp,
-        preview,
+        preview: preview_first.clone(),
+        preview_first,
+        preview_last,
         full_text,
+        search_text_lower,
         project_name: None,
         project_path: None,
         cwd: extracted_cwd,
@@ -515,9 +518,8 @@ mod tests {
         process_conversation_reader(
             PathBuf::from("test.jsonl"),
             reader,
-            false, // show_last
-            None,  // modified
-            None,  // debug_level
+            None, // modified
+            None, // debug_level
         )
     }
 
@@ -736,7 +738,7 @@ mod tests {
     // === Preview order ===
 
     #[test]
-    fn show_last_reverses_preview_order() {
+    fn both_preview_variants_computed() {
         let content = [
             user_msg("First", None),
             assistant_msg("Response 1"),
@@ -747,34 +749,20 @@ mod tests {
         ]
         .join("\n");
 
-        // Parse with show_last = false
-        let conv_first = {
-            let reader = Cursor::new(&content);
-            process_conversation_reader(PathBuf::from("test.jsonl"), reader, false, None, None)
-                .unwrap()
-                .unwrap()
-        };
+        let conv = parse_jsonl(&content).unwrap().unwrap();
 
-        // Parse with show_last = true
-        let conv_last = {
-            let reader = Cursor::new(&content);
-            process_conversation_reader(PathBuf::from("test.jsonl"), reader, true, None, None)
-                .unwrap()
-                .unwrap()
-        };
-
-        // show_last=false should start with "First"
+        // preview_first should start with "First"
         assert!(
-            conv_first.preview.starts_with("First"),
-            "Preview should start with First: {}",
-            conv_first.preview
+            conv.preview_first.starts_with("First"),
+            "preview_first should start with First: {}",
+            conv.preview_first
         );
 
-        // show_last=true should start with the last message (Response 3)
+        // preview_last should start with the last message (Response 3)
         assert!(
-            conv_last.preview.starts_with("Response 3"),
-            "Preview should start with Response 3: {}",
-            conv_last.preview
+            conv.preview_last.starts_with("Response 3"),
+            "preview_last should start with Response 3: {}",
+            conv.preview_last
         );
     }
 

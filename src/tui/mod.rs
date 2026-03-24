@@ -1,6 +1,6 @@
 mod app;
 mod export;
-mod search;
+pub mod search;
 pub mod theme;
 mod ui;
 pub mod viewer;

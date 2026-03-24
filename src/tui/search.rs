@@ -87,19 +87,21 @@ pub fn is_word_separator(c: char) -> bool {
     c.is_whitespace() || c == '_' || c == '-' || c == '/' || is_cjk_punctuation(c)
 }
 
-/// Precompute lowercased search text for all conversations
+/// Build searchable index from conversations using pre-normalized search text.
+/// Only appends the (small) project name — the expensive full_text normalization
+/// was already done during parsing/cache load.
 pub fn precompute_search_text(conversations: &[Conversation]) -> Vec<SearchableConversation> {
     conversations
         .par_iter()
         .enumerate()
         .map(|(idx, conv)| {
-            let mut text = conv.full_text.clone();
-            if let Some(ref name) = conv.project_name {
-                text.push(' ');
-                text.push_str(name);
-            }
+            let text_lower = if let Some(ref name) = conv.project_name {
+                format!("{} {}", conv.search_text_lower, normalize_for_search(name))
+            } else {
+                conv.search_text_lower.clone()
+            };
             SearchableConversation {
-                text_lower: normalize_for_search(&text),
+                text_lower,
                 index: idx,
             }
         })
@@ -262,7 +264,10 @@ mod tests {
             index: 0,
             timestamp,
             preview: text.to_string(),
+            preview_first: text.to_string(),
+            preview_last: text.to_string(),
             full_text: text.to_string(),
+            search_text_lower: normalize_for_search(text),
             project_name: None,
             project_path: None,
             cwd: None,

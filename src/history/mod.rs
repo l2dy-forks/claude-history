@@ -11,6 +11,7 @@
 //! - `parser` - Parsing individual JSONL files
 //! - `path` - Path encoding/decoding utilities
 
+pub mod cache;
 mod loader;
 mod parser;
 pub mod path;
@@ -43,7 +44,13 @@ pub struct Conversation {
     pub index: usize,
     pub timestamp: DateTime<Local>,
     pub preview: String,
+    /// Preview showing first 3 messages (used when show_last=false)
+    pub preview_first: String,
+    /// Preview showing last 3 messages (used when show_last=true)
+    pub preview_last: String,
     pub full_text: String,
+    /// Pre-normalized lowercase search text (avoids re-normalizing on every startup)
+    pub search_text_lower: String,
     pub project_name: Option<String>,
     pub project_path: Option<PathBuf>,
     /// The working directory extracted from the JSONL file (the actual cwd)

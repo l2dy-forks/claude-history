@@ -375,7 +375,7 @@ impl App {
         let mut filtered = Vec::new();
         let mut selected = None;
 
-        if let Ok(Some(mut conv)) = process_conversation_file(path.clone(), false, modified, None) {
+        if let Ok(Some(mut conv)) = process_conversation_file(path.clone(), modified, None) {
             // Set project_name the same way as the loader does
             let project_path = conv.cwd.clone().unwrap_or_else(|| path.clone());
             conv.project_name = Some(format_short_name_from_path(&project_path));
@@ -624,8 +624,7 @@ impl App {
         // Try to find and load from filesystem
         let path = crate::history::find_jsonl_by_uuid(uuid).ok()??;
         let modified = path.metadata().ok().and_then(|m| m.modified().ok());
-        let mut conv =
-            crate::history::process_conversation_file(path, false, modified, None).ok()??;
+        let mut conv = crate::history::process_conversation_file(path, modified, None).ok()??;
 
         // Inject project metadata (process_conversation_file doesn't set these)
         let fallback_path = conv

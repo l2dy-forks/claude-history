@@ -3,6 +3,7 @@
 //! This module handles loading conversations from Claude project directories,
 //! both synchronously and via streaming for the TUI.
 
+use super::cache;
 use super::parser::process_conversation_file;
 use super::path::{
     decode_project_dir_name, decode_project_dir_name_to_path, format_short_name_from_path,
@@ -12,6 +13,7 @@ use crate::cli::DebugLevel;
 use crate::debug;
 use crate::error::{AppError, Result};
 use rayon::prelude::*;
+use std::collections::HashMap;
 use std::fs::read_dir;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -37,7 +39,7 @@ pub fn load_all_conversations(
         .par_iter()
         .flat_map(|project| {
             let project_dir = root.join(&project.name);
-            match load_conversations(&project_dir, show_last, debug_level) {
+            match load_conversations(&project_dir, show_last, &project.name, debug_level) {
                 Ok(mut convs) => {
                     // Fallback path for old JSONL files without cwd field
                     let fallback_path = decode_project_dir_name_to_path(&project.name);
@@ -136,7 +138,7 @@ fn load_all_streaming_inner(
     projects.par_iter().for_each(|project| {
         let project_dir = root.join(&project.name);
 
-        match load_conversations(&project_dir, show_last, debug_level) {
+        match load_conversations(&project_dir, show_last, &project.name, debug_level) {
             Ok(mut convs) => {
                 if convs.is_empty() {
                     return;
@@ -286,12 +288,16 @@ pub fn list_projects(root: &Path) -> Result<Vec<Project>> {
     Ok(projects)
 }
 
-/// Find and process all conversation files in one pass
+/// Find and process all conversation files in one pass, using per-project cache
 pub fn load_conversations(
     projects_dir: &Path,
     show_last: bool,
+    project_dir_name: &str,
     debug_level: Option<DebugLevel>,
 ) -> Result<Vec<Conversation>> {
+    // Load existing cache for this project
+    let cached_entries = cache::read_project_cache(project_dir_name).unwrap_or_default();
+
     // Find all JSONL files and capture metadata in one pass
     let mut files_with_meta = Vec::new();
     let mut skipped_agent_files = 0;
@@ -309,12 +315,11 @@ pub fn load_conversations(
                 continue;
             }
 
-            let modified = entry
-                .metadata()
-                .ok()
-                .and_then(|metadata| metadata.modified().ok());
+            let metadata = entry.metadata().ok();
+            let modified = metadata.as_ref().and_then(|m| m.modified().ok());
+            let file_size = metadata.as_ref().map(|m| m.len()).unwrap_or(0);
 
-            files_with_meta.push((path, modified));
+            files_with_meta.push((path, modified, file_size));
         }
     }
 
@@ -328,24 +333,71 @@ pub fn load_conversations(
     );
 
     // Sort by modification time (newest first)
-    files_with_meta.sort_by_key(|(_, modified)| modified.unwrap_or(SystemTime::UNIX_EPOCH));
+    files_with_meta.sort_by_key(|(_, modified, _)| modified.unwrap_or(SystemTime::UNIX_EPOCH));
     files_with_meta.reverse();
 
-    // Process each file (potentially in parallel)
-    let mut conversations: Vec<Conversation> = files_with_meta
+    // Partition into cache hits and misses
+    let mut dirty = false;
+    let mut conversations: Vec<Conversation> = Vec::with_capacity(files_with_meta.len());
+    let mut files_to_parse: Vec<(PathBuf, Option<SystemTime>, u64)> = Vec::new();
+
+    for (path, modified, file_size) in &files_with_meta {
+        let filename = path
+            .file_name()
+            .and_then(|f| f.to_str())
+            .unwrap_or("unknown");
+
+        if let Some(mtime) = modified
+            && let Some(entry) = cached_entries.get(filename)
+            && cache::entry_matches(entry, *file_size, *mtime)
+        {
+            let conv = cache::conversation_from_entry(entry, path.clone(), show_last);
+            debug::debug(
+                debug_level,
+                &format!("Cache hit {}: {}", filename, conv.preview),
+            );
+            conversations.push(conv);
+        } else {
+            dirty = true;
+            files_to_parse.push((path.clone(), *modified, *file_size));
+        }
+    }
+
+    if !dirty && files_with_meta.len() != cached_entries.len() {
+        // Files were deleted — need to rewrite cache to remove stale entries
+        dirty = true;
+    }
+
+    debug::info(
+        debug_level,
+        &format!(
+            "Cache: {} hits, {} misses",
+            conversations.len(),
+            files_to_parse.len()
+        ),
+    );
+
+    // Parse only cache misses in parallel
+    let parsed: Vec<Conversation> = files_to_parse
         .into_par_iter()
-        .filter_map(|(path, modified)| {
+        .filter_map(|(path, modified, _file_size)| {
             let filename = path
                 .file_name()
                 .and_then(|f| f.to_str())
                 .unwrap_or("unknown")
                 .to_owned();
 
-            match process_conversation_file(path, show_last, modified, debug_level) {
-                Ok(Some(conversation)) => {
+            match process_conversation_file(path, modified, debug_level) {
+                Ok(Some(mut conversation)) => {
+                    // Set preview based on show_last
+                    conversation.preview = if show_last {
+                        conversation.preview_last.clone()
+                    } else {
+                        conversation.preview_first.clone()
+                    };
                     debug::debug(
                         debug_level,
-                        &format!("Loaded {}: {}", filename, conversation.preview),
+                        &format!("Parsed {}: {}", filename, conversation.preview),
                     );
                     Some(conversation)
                 }
@@ -360,6 +412,8 @@ pub fn load_conversations(
             }
         })
         .collect();
+
+    conversations.extend(parsed);
 
     // Ensure deterministic ordering after parallel processing
     conversations.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
@@ -377,6 +431,31 @@ pub fn load_conversations(
         let project_path = conv.cwd.clone().unwrap_or_else(|| fallback_path.clone());
         conv.project_name = Some(format_short_name_from_path(&project_path));
         conv.project_path = Some(project_path);
+    }
+
+    // Write updated cache if anything changed
+    if dirty {
+        let mut new_cache: HashMap<String, cache::CacheEntry> = HashMap::new();
+        for conv in &conversations {
+            let filename = conv
+                .path
+                .file_name()
+                .and_then(|f| f.to_str())
+                .unwrap_or("unknown");
+
+            // Look up file metadata from our scan
+            if let Some((_, modified, file_size)) = files_with_meta
+                .iter()
+                .find(|(p, _, _)| p.file_name() == conv.path.file_name())
+                && let Some(mtime) = modified
+            {
+                new_cache.insert(
+                    filename.to_owned(),
+                    cache::entry_from_conversation(conv, *file_size, *mtime),
+                );
+            }
+        }
+        cache::write_project_cache(project_dir_name, new_cache);
     }
 
     debug::info(
