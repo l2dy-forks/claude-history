@@ -1,3 +1,10 @@
+## v0.1.48 (2026-03-24)
+
+- Fixed search missing content in long conversations due to a 256K character
+  truncation limit — all conversation text is now fully searchable
+- Added Windows support — compilation and home directory resolution now work
+  correctly on Windows ([#26](https://github.com/raine/claude-history/pull/26))
+
 ## v0.1.47 (2026-03-22)
 
 - Fixed conversations that only contain skill invocations (e.g. `/consult`,
