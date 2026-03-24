@@ -157,6 +157,10 @@ pub fn search(
 /// Score a conversation based on word prefix matching and recency.
 /// Each query word must be a prefix of at least one word in the text (AND logic).
 /// Falls back to substring matching when prefix matching fails (e.g. for CJK text).
+///
+/// Uses `find()` + word boundary check instead of `split_whitespace()` iteration
+/// so that search time scales with the number of matches, not the number of words
+/// in the text. This keeps interactive search fast even on multi-MB conversations.
 fn score_text(
     text_lower: &str,
     query_words: &[&str],
@@ -174,20 +178,41 @@ fn score_text(
         }
     }
 
-    // Single-pass word matching with tracking (prefix match = higher score)
-    let mut matched = vec![false; query_words.len()];
-    let mut remaining = query_words.len();
+    // For each query word, find it at a word boundary (prefix match).
+    // Uses find() which is backed by SIMD-accelerated memchr in Rust's std.
+    let text_bytes = text_lower.as_bytes();
+    let mut all_prefix_matched = true;
 
-    for text_word in text_lower.split_whitespace() {
-        for (i, &qw) in query_words.iter().enumerate() {
-            if !matched[i] && text_word.starts_with(qw) {
-                matched[i] = true;
-                remaining -= 1;
-                if remaining == 0 {
-                    return (query_words.len() as f64) * recency_multiplier(timestamp, now);
-                }
+    for &qw in query_words {
+        let mut start = 0;
+        let mut found = false;
+
+        while let Some(pos) = text_lower[start..].find(qw) {
+            let actual_pos = start + pos;
+
+            // Check word boundary: start of string or preceded by whitespace
+            let at_boundary = actual_pos == 0 || text_bytes[actual_pos - 1].is_ascii_whitespace();
+
+            if at_boundary {
+                found = true;
+                break;
             }
+            // Advance past this occurrence (must land on a char boundary for UTF-8 safety)
+            start = actual_pos
+                + text_lower[actual_pos..]
+                    .chars()
+                    .next()
+                    .map_or(1, |c| c.len_utf8());
         }
+
+        if !found {
+            all_prefix_matched = false;
+            break;
+        }
+    }
+
+    if all_prefix_matched {
+        return (query_words.len() as f64) * recency_multiplier(timestamp, now);
     }
 
     // Fallback: substring matching for CJK text.
