@@ -74,7 +74,8 @@ preview.
 | `Ctrl+X`                | Delete conversation             |
 | `Tab`                   | Toggle all / workspace scope    |
 | `?`                     | Show keyboard shortcuts         |
-| `Esc` / `Ctrl+C`        | Quit                            |
+| `Esc`                   | Clear search input, or quit     |
+| `Ctrl+C`                | Quit                            |
 
 ### Keyboard navigation (Viewer mode)
 

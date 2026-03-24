@@ -1499,7 +1499,16 @@ impl App {
         // During loading, allow navigation and typing but not Enter selection
         if self.is_loading() {
             return match code {
-                KeyCode::Esc => Some(Action::Quit),
+                KeyCode::Esc => {
+                    if self.query.is_empty() {
+                        Some(Action::Quit)
+                    } else {
+                        self.query.clear();
+                        self.cursor_pos = 0;
+                        self.dispatch_search();
+                        None
+                    }
+                }
                 KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => {
                     Some(Action::Quit)
                 }
@@ -1651,7 +1660,16 @@ impl App {
 
         // Normal handling when ready
         match code {
-            KeyCode::Esc => Some(Action::Quit),
+            KeyCode::Esc => {
+                if self.query.is_empty() {
+                    Some(Action::Quit)
+                } else {
+                    self.query.clear();
+                    self.cursor_pos = 0;
+                    self.dispatch_search();
+                    None
+                }
+            }
             // Enter now triggers view mode entry (handled in run loop)
             KeyCode::Enter => None,
             // Ctrl+Left: move cursor one word left
