@@ -12,7 +12,7 @@ use crate::cli::DebugLevel;
 use crate::debug;
 use crate::error::Result;
 use chrono::{DateTime, Local};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
@@ -44,8 +44,22 @@ pub(crate) fn process_conversation_reader<R: BufRead>(
         .and_then(|f| f.to_str())
         .unwrap_or("unknown");
 
-    // Collect all lines for context access when logging parse errors
-    let lines: Vec<String> = reader.lines().map_while(|l| l.ok()).collect();
+    // Stream lines with a sliding window for parse error context.
+    // A VecDeque lookahead holds the current line + up to 2 context_after lines,
+    // and a context_before deque holds the last 2 lines for error diagnostics.
+    let mut lines_iter = reader.lines();
+    let mut context_window: VecDeque<String> = VecDeque::with_capacity(2);
+    let mut context_before: VecDeque<String> = VecDeque::with_capacity(2);
+
+    // Pre-fill the lookahead window (current line + 1 lookahead;
+    // a second lookahead line is added when the current line is popped)
+    for _ in 0..2 {
+        match lines_iter.next() {
+            Some(Ok(line)) => context_window.push_back(line),
+            Some(Err(e)) => return Err(e.into()),
+            None => break,
+        }
+    }
 
     let mut all_parts = Vec::new();
     let mut preview_parts = Vec::new();
@@ -65,12 +79,27 @@ pub(crate) fn process_conversation_reader<R: BufRead>(
     let mut first_timestamp: Option<chrono::DateTime<chrono::FixedOffset>> = None;
     let mut last_timestamp: Option<chrono::DateTime<chrono::FixedOffset>> = None;
 
-    for (line_idx, line) in lines.iter().enumerate() {
+    let mut line_idx: usize = 0;
+
+    while let Some(line) = context_window.pop_front() {
+        // Top up the lookahead window from the iterator
+        match lines_iter.next() {
+            Some(Ok(next_line)) => context_window.push_back(next_line),
+            Some(Err(e)) => return Err(e.into()),
+            None => {}
+        }
+
         if line.trim().is_empty() {
+            // Blank lines participate in context buffers but are not parsed
+            context_before.push_back(line);
+            if context_before.len() > 2 {
+                context_before.pop_front();
+            }
+            line_idx += 1;
             continue;
         }
 
-        match serde_json::from_str::<LogEntry>(line) {
+        match serde_json::from_str::<LogEntry>(&line) {
             Ok(entry) => {
                 // Extract text content
                 match entry {
@@ -211,18 +240,13 @@ pub(crate) fn process_conversation_reader<R: BufRead>(
                 }
             }
             Err(e) => {
-                // Capture parse error with surrounding context
-                let start = line_idx.saturating_sub(2);
-                let context_before: Vec<String> = lines[start..line_idx].to_vec();
-                let end = (line_idx + 3).min(lines.len());
-                let context_after: Vec<String> = lines[line_idx + 1..end].to_vec();
-
+                // Capture parse error with surrounding context from the sliding window
                 parse_errors.push(ParseError {
                     line_number: line_idx + 1, // 1-indexed for display
                     line_content: line.clone(),
                     error_message: e.to_string(),
-                    context_before,
-                    context_after,
+                    context_before: context_before.iter().cloned().collect(),
+                    context_after: context_window.iter().cloned().collect(),
                 });
 
                 debug::warn(
@@ -236,6 +260,13 @@ pub(crate) fn process_conversation_reader<R: BufRead>(
                 );
             }
         }
+
+        // Update the trailing context window
+        context_before.push_back(line);
+        if context_before.len() > 2 {
+            context_before.pop_front();
+        }
+        line_idx += 1;
     }
 
     // Check if this is a clear-only conversation or if preview is empty after filtering
@@ -670,6 +701,36 @@ mod tests {
         assert_eq!(error.context_before.len(), 1);
         // Context after should have line 3
         assert_eq!(error.context_after.len(), 1);
+    }
+
+    #[test]
+    fn parse_error_context_after_capped_at_two_lines() {
+        let content = [
+            user_msg("Before 1", None),
+            user_msg("Before 2", None),
+            "invalid json".to_string(),
+            user_msg("After 1", None),
+            user_msg("After 2", None),
+            user_msg("After 3", None),
+            assistant_msg("Response"),
+        ]
+        .join("\n");
+
+        let conv = parse_jsonl(&content).unwrap().unwrap();
+        assert_eq!(conv.parse_errors.len(), 1);
+
+        let error = &conv.parse_errors[0];
+        assert_eq!(error.line_number, 3);
+        assert_eq!(
+            error.context_before.len(),
+            2,
+            "context_before should have at most 2 lines"
+        );
+        assert_eq!(
+            error.context_after.len(),
+            2,
+            "context_after should have at most 2 lines"
+        );
     }
 
     // === Preview order ===
